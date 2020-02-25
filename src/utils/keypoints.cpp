@@ -185,6 +185,7 @@ void detectKeypoints(
 
   for (size_t x = x_start; x < x_stop; x += PATCH_SIZE) {
     for (size_t y = y_start; y < y_stop; y += PATCH_SIZE) {
+      // hm: if the current cell already has previously tracked feature, skip this cell
       if (cells((y - y_start) / PATCH_SIZE, (x - x_start) / PATCH_SIZE) > 0)
         continue;
 
@@ -193,8 +194,9 @@ void detectKeypoints(
 
       cv::Mat subImg(PATCH_SIZE, PATCH_SIZE, CV_8U);
 
+      // hm: convert to 8bit, from 16bit?
       for (int y = 0; y < PATCH_SIZE; y++) {
-        uchar* sub_ptr = subImg.ptr(y);
+        uchar* sub_ptr = subImg.ptr(y); // hm: ptr to rows, OpenCV
         for (int x = 0; x < PATCH_SIZE; x++) {
           sub_ptr[x] = (sub_img_raw(x, y) >> 8);
         }

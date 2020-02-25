@@ -4,3 +4,4 @@ CMakeLists.txt.user
 build*
 scripts/eval/eval_*
 scripts/eval_full/eval_*
+.vscode/

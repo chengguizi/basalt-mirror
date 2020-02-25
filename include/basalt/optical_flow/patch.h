@@ -78,16 +78,17 @@ struct OpticalFlowPatch {
     Scalar sum = 0;
     Vector2 grad_sum(0, 0);
 
-    MatrixP2 grad;
+    MatrixP2 grad; // hm: matrix of patter_size * 2, stores the gradient, with respect to x (right) and y (down), for data!
 
     for (int i = 0; i < PATTERN_SIZE; i++) {
       Vector2 p = pos + pattern2.col(i);
       if (img.InBounds(p, 2)) {
+        // hm: interpolated gradient value, first element of the vector is the interpolation, the next two is dx, dy
         Vector3 valGrad = img.interpGrad<Scalar>(p);
         data[i] = valGrad[0];
         sum += valGrad[0];
-        grad.row(i) = valGrad.template tail<2>();
-        grad_sum += valGrad.template tail<2>();
+        grad.row(i) = valGrad.template tail<2>(); // hm: stores gradient of pixels in each row
+        grad_sum += valGrad.template tail<2>(); // hm: to calculate average gradient, sum them up here first
         num_valid_points++;
       } else {
         data[i] = -1;
@@ -97,42 +98,50 @@ struct OpticalFlowPatch {
     mean = sum / num_valid_points;
 
     Scalar mean_inv = num_valid_points / sum;
-
-    Eigen::Matrix<Scalar, 2, 3> Jw_se2;
+    
+    // hm: NOTE that the SE2 here applies to the template (data), not the wrapped image
+    Eigen::Matrix<Scalar, 2, 3> Jw_se2; // hm: each column, x, y, theta. x points right, y points down
     Jw_se2.template topLeftCorner<2, 2>().setIdentity();
 
-    MatrixP3 J_se2;
+    MatrixP3 J_se2; // hm: pattern_size * 3, account for 2 translation and 1 rotation. reflects how each residual component changes, with regards to SE(2)
 
     for (int i = 0; i < PATTERN_SIZE; i++) {
       if (data[i] >= 0) {
         const Scalar data_i = data[i];
         const Vector2 grad_i = grad.row(i);
+        // hm: grad_i is the current pixel's gradient
+        // hm: effectively = grad_i / averaged_intensity -  averaged_grad * grad_i / averaged_intensity
         grad.row(i) =
             num_valid_points * (grad_i * sum - grad_sum * data_i) / (sum * sum);
 
-        data[i] *= mean_inv;
+        data[i] *= mean_inv; // hm: divide by mean for all pixels
       } else {
         grad.row(i).setZero();
       }
 
       // Fill jacobians with respect to SE2 warp
-      Jw_se2(0, 2) = -pattern2(1, i);
-      Jw_se2(1, 2) = pattern2(0, i);
-      J_se2.row(i) = grad.row(i) * Jw_se2;
+      // hm: the image is store in a row-major fashion, starting from the top-left corner. x correspon
+      Jw_se2(0, 2) = -pattern2(1, i); // hm: change of x, respect to rotation. Apply small angle differentiation, give dx/dtheta = -y
+      Jw_se2(1, 2) = pattern2(0, i); // hm: change of y, respect to rotation. Similarly dy/dtheta = x
+      // hm: J_se2 = di/dw * dw/dse2 = grad * Jw_se2
+      J_se2.row(i) = grad.row(i) * Jw_se2; // hm: jecobian of each pixel = 
     }
 
+    // hm: formulation refer to Usenko(2019), Preliminaries, with W = identity
     Matrix3 H_se2 = J_se2.transpose() * J_se2;
     Matrix3 H_se2_inv;
     H_se2_inv.setIdentity();
-    H_se2.ldlt().solveInPlace(H_se2_inv);
+    H_se2.ldlt().solveInPlace(H_se2_inv); // hm: this is to solve the inverse. This is because H_se2_inv is set to identity. so the result x IS THE INVERSE
 
     H_se2_inv_J_se2_T = H_se2_inv * J_se2.transpose();
   }
 
+  // hm: transformed_pattern is rotated and shifted outside this call
+  // hm: residual is computed against the data vector, size patter_size
   inline bool residual(const Image<const uint16_t> &img,
                        const Matrix2P &transformed_pattern,
                        VectorP &residual) const {
-    Scalar sum = 0;
+    Scalar sum = 0; // hm: stores the sum of image pixels, using valid points in the transformed pattern
     Vector2 grad_sum(0, 0);
     int num_valid_points = 0;
 
@@ -151,6 +160,7 @@ struct OpticalFlowPatch {
     for (int i = 0; i < PATTERN_SIZE; i++) {
       if (residual[i] >= 0 && data[i] >= 0) {
         const Scalar val = residual[i];
+        // hm: sum / num_valid_points gives the averaged intensity of the patch
         residual[i] = num_valid_points * val / sum - data[i];
         num_residuals++;
 
@@ -159,6 +169,7 @@ struct OpticalFlowPatch {
       }
     }
 
+    // hm: num_residuals indicates the number of points that both valid in data and residuals
     return num_residuals > PATTERN_SIZE / 2;
   }
 
@@ -169,7 +180,7 @@ struct OpticalFlowPatch {
   // Matrix3 H_se2_inv;
   Matrix3P H_se2_inv_J_se2_T;
 
-  Scalar mean;
+  Scalar mean; // hm: mean of data, before deviding by mean
 };
 
 template <typename Scalar, typename Pattern>

@@ -111,16 +111,19 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
       if (!v.img.get()) return;
     }
 
+    // hm: first frame
     if (t_ns < 0) {
       t_ns = curr_t_ns;
 
       transforms.reset(new OpticalFlowResult);
+      // hm: size depends on the number of cameras
       transforms->observations.resize(calib.intrinsics.size());
       transforms->t_ns = t_ns;
 
       pyramid.reset(new std::vector<basalt::ManagedImagePyr<u_int16_t>>);
       pyramid->resize(calib.intrinsics.size());
 
+      // hm: Running pyramid for all images in parallel
       tbb::parallel_for(tbb::blocked_range<size_t>(0, calib.intrinsics.size()),
                         [&](const tbb::blocked_range<size_t>& r) {
                           for (size_t i = r.begin(); i != r.end(); ++i) {
@@ -132,6 +135,7 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
 
       transforms->input_images = new_img_vec;
 
+      // hm: detect keypoints in the first image, at level 0
       addPoints();
       filterPoints();
 
@@ -156,6 +160,7 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
       new_transforms->observations.resize(calib.intrinsics.size());
       new_transforms->t_ns = t_ns;
 
+      // hm: perform feature tracking for each camera separately
       for (size_t i = 0; i < calib.intrinsics.size(); i++) {
         trackPoints(old_pyramid->at(i), pyramid->at(i),
                     transforms->observations[i],
@@ -166,6 +171,7 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
       transforms->input_images = new_img_vec;
 
       addPoints();
+      // hm: here uses CAMERA MODEL!
       filterPoints();
     }
 
@@ -209,6 +215,7 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
         if (valid) {
           Eigen::AffineCompact2f transform_1_recovered = transform_2;
 
+          // hm: validate the point could be tracked in reverse, from current to previous
           valid = trackPoint(pyr_2, pyr_1, transform_2, transform_1_recovered);
 
           if (valid) {
@@ -268,17 +275,20 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
     for (int iteration = 0;
          patch_valid && iteration < config.optical_flow_max_iterations;
          iteration++) {
-      typename PatchT::VectorP res;
+      typename PatchT::VectorP res; // hm: size of patch_size * 1, column vector
 
       typename PatchT::Matrix2P transformed_pat =
-          transform.linear().matrix() * PatchT::pattern2;
-      transformed_pat.colwise() += transform.translation();
+          transform.linear().matrix() * PatchT::pattern2; // hm:: pattern2 is a matrix with two rows, xs and ys
+      transformed_pat.colwise() += transform.translation(); // hm: R * (x;y) + t
 
+      // hm: res = patch - data
       bool valid = dp.residual(img_2, transformed_pat, res);
 
       if (valid) {
-        Vector3 inc = -dp.H_se2_inv_J_se2_T * res;
-        transform *= SE2::exp(inc).matrix();
+        // hm: SE2 representation, 2 elements for translation, 1 for rotation
+        // hm: http://fourier.eng.hmc.edu/e176/lectures/NM/node36.html
+        Vector3 inc = dp.H_se2_inv_J_se2_T * res; // hm: H_se2_inv_J_se2_T conprises of the update needed to make I(x) of data bigger, which in turn makes residual smaller as r = y - f(x) = img - data
+        transform *= SE2::exp(-inc).matrix();
 
         const int filter_margin = 2;
 
@@ -295,12 +305,15 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
   void addPoints() {
     Eigen::aligned_vector<Eigen::Vector2d> pts0;
 
+    // hm: add previously tracked points from the first image to pts0 variable
+    // hm: trackPoints() must be executed before this function call
     for (const auto& kv : transforms->observations.at(0)) {
       pts0.emplace_back(kv.second.translation().cast<double>());
     }
 
     KeypointsData kd;
-
+    
+    // hm: pts0 is the current points
     detectKeypoints(pyramid->at(0).lvl(0), kd,
                     config.optical_flow_detection_grid_size, 1, pts0);
 
@@ -336,9 +349,10 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
     Eigen::aligned_vector<Eigen::Vector2f> proj0, proj1;
 
     for (const auto& kv : transforms->observations.at(1)) {
+      // hm: find the same keypoint ID in both camera
       auto it = transforms->observations.at(0).find(kv.first);
 
-      if (it != transforms->observations.at(0).end()) {
+      if (it != transforms->observations.at(0).end()) { // hm: found 
         proj0.emplace_back(it->second.translation());
         proj1.emplace_back(kv.second.translation());
         kpid.emplace_back(kv.first);
@@ -348,12 +362,14 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
     Eigen::aligned_vector<Eigen::Vector4f> p3d0, p3d1;
     std::vector<bool> p3d0_success, p3d1_success;
 
-    calib.intrinsics[0].unproject(proj0, p3d0, p3d0_success);
-    calib.intrinsics[1].unproject(proj1, p3d1, p3d1_success);
+    calib.intrinsics[0].unproject(proj0, p3d0, p3d0_success); // hm: unproject all image domain points in cam0
+    calib.intrinsics[1].unproject(proj1, p3d1, p3d1_success); // hm: unproject all image domain points in cam1
 
     for (size_t i = 0; i < p3d0_success.size(); i++) {
       if (p3d0_success[i] && p3d1_success[i]) {
         const double epipolar_error =
+            // hm: Essential Matrix - for homogeneous normalized image coordinates 
+            // hm: E only the topleft 3x3 part is used
             std::abs(p3d0[i].transpose() * E * p3d1[i]);
 
         if (epipolar_error > config.optical_flow_epipolar_error) {
