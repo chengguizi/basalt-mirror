@@ -202,6 +202,16 @@ include_directories(${OpenCV_INCLUDE_DIR})
 message(STATUS "Found OpenCV headers in: ${OpenCV_INCLUDE_DIR}")
 message(STATUS "Found OpenCV_LIBS: ${OpenCV_LIBS}")
 
+find_package(catkin REQUIRED COMPONENTS
+    roscpp
+    geometry_msgs
+    nav_msgs
+    image_transport
+    message_filters
+    cv_bridge
+)
+# include_directories(${catkin_INCLUDE_DIRS})
+catkin_package()
 
 add_subdirectory(thirdparty)
 
@@ -211,6 +221,7 @@ include_directories(thirdparty/basalt-headers/thirdparty/cereal/include)
 include_directories(thirdparty/basalt-headers/include)
 include_directories(thirdparty/CLI11/include)
 include_directories(thirdparty/fast/include)
+include_directories(thirdparty/ros/include)
 
 include_directories(include)
 
@@ -233,7 +244,7 @@ add_library(basalt SHARED
   src/utils/keypoints.cpp)
 
 
-target_link_libraries(basalt PUBLIC ${TBB_LIBRARIES} ${STD_CXX_FS} ${OpenCV_LIBS} PRIVATE rosbag apriltag opengv)
+target_link_libraries(basalt PUBLIC ${TBB_LIBRARIES} ${STD_CXX_FS} ${OpenCV_LIBS} ${catkin_LIBRARIES} PRIVATE  apriltag opengv rosbag)
 
 
 add_executable(basalt_calibrate src/calibrate.cpp src/calibration/cam_calib.cpp)
@@ -261,6 +272,10 @@ target_link_libraries(basalt_opt_flow basalt pangolin)
 
 add_executable(basalt_vio src/vio.cpp)
 target_link_libraries(basalt_vio basalt pangolin)
+
+add_executable(basalt_vio_ros src/ros_live_vio.cpp)
+target_link_libraries(basalt_vio_ros basalt pangolin ${catkin_LIBRARIES} )
+target_include_directories(basalt_vio_ros  PRIVATE ${catkin_INCLUDE_DIRS})
 
 add_executable(basalt_time_alignment src/time_alignment.cpp)
 target_link_libraries(basalt_time_alignment basalt pangolin)
