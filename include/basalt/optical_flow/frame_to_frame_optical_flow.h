@@ -50,6 +50,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <basalt/utils/keypoints.h>
 
 #include <tbb/parallel_for.h>
+#include <opencv2/features2d.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/core/core.hpp>
+#include <opencv/cv.hpp>
 
 namespace basalt {
 
@@ -72,7 +76,7 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
   FrameToFrameOpticalFlow(const VioConfig& config,
                           const basalt::Calibration<double>& calib)
       : t_ns(-1), frame_counter(0), last_keypoint_id(0), config(config) {
-    input_queue.set_capacity(10);
+    input_queue.set_capacity(100);
 
     this->calib = calib.cast<Scalar>();
 
@@ -82,6 +86,13 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
       Eigen::Matrix4d Ed;
       Sophus::SE3d T_i_j = calib.T_i_c[0].inverse() * calib.T_i_c[1];
       computeEssential(T_i_j, Ed);
+      std::cout<<"cam1 to cam0 : " << T_i_j.translation().x() << ","
+              << T_i_j.translation().y() << ","
+              << T_i_j.translation().z() << ","
+              << T_i_j.unit_quaternion().x() << ","
+              << T_i_j.unit_quaternion().y() << ","
+              << T_i_j.unit_quaternion().z() << ","
+              << T_i_j.unit_quaternion().w() << std::endl<<std::endl;
       E = Ed.cast<Scalar>();
     }
 
@@ -113,6 +124,7 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
 
     // hm: first frame
     if (t_ns < 0) {
+      // std::cout<<"first t_ns: "<<t_ns<<std::endl<<std::endl;
       t_ns = curr_t_ns;
 
       transforms.reset(new OpticalFlowResult);
@@ -165,6 +177,10 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
         trackPoints(old_pyramid->at(i), pyramid->at(i),
                     transforms->observations[i],
                     new_transforms->observations[i]);
+
+        if(config.vio_debug){
+          std::cout<<"cam"<<i<<"_pre_points: "<< transforms->observations.at(i).size()<<", tracked points: "<<new_transforms->observations[i].size()<<"track ratio: "<< float(new_transforms->observations[i].size())/transforms->observations.at(i).size()<<std::endl;
+        }
       }
 
       transforms = new_transforms;
@@ -173,10 +189,55 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
       addPoints();
       // hm: here uses CAMERA MODEL!
       filterPoints();
+
+      //draw matching points
+      if(config.feature_match_show){
+        std::vector<cv::KeyPoint> kp1, kp2, kp0;
+        std::vector<cv::DMatch> match;
+        int match_id = 0;
+        basalt::Image<const uint16_t> img_raw_1(pyramid->at(0).lvl(1)), img_raw_2(pyramid->at(1).lvl(1));
+        int w = img_raw_1.w; 
+        int h = img_raw_1.h;
+        cv::Mat img1(h, w, CV_8U);
+        cv::Mat img2(h, w, CV_8U);
+        for(int y = 0; y < h; y++){
+          uchar* sub_ptr_1 = img1.ptr(y);
+          uchar* sub_ptr_2 = img2.ptr(y);
+
+          for(int x = 0; x < w; x++){
+            sub_ptr_1[x] = (img_raw_1(x,y) >> 8);
+            sub_ptr_2[x] = (img_raw_2(x,y) >> 8);
+
+          }
+        }
+
+        for(const auto& kv: transforms->observations[0]){
+          auto it = transforms->observations[1].find(kv.first);
+          if(it != transforms->observations[1].end()){
+            
+            kp1.push_back(cv::KeyPoint(cv::Point2f(kv.second.translation()[0]/2, kv.second.translation()[1]/2), 1));
+            kp2.push_back(cv::KeyPoint(cv::Point2f(it->second.translation()[0]/2, it->second.translation()[1]/2), 1));
+            match.push_back(cv::DMatch(match_id,match_id,1));
+            match_id++;
+          }
+          else{
+            kp0.push_back(cv::KeyPoint(cv::Point2f(kv.second.translation()[0]/2, kv.second.translation()[1]/2), 1));
+          }
+        }
+        cv::Mat image_show(h, w*2, CV_8U);
+        cv::drawKeypoints(img1, kp0,img1);
+        cv::drawMatches(img1,kp1,img2,kp2,match, image_show);
+        cv::imshow("matching result", image_show);
+        cv::waitKey(1);
+      }
+
     }
 
     if (output_queue && frame_counter % config.optical_flow_skip_frames == 0) {
-      output_queue->push(transforms);
+      if(!output_queue->try_push(transforms)){
+          std::cout<<"frame to frame optical flow output queue is full: "<<output_queue->size()<<std::endl;
+          abort();
+        }
     }
 
     frame_counter++;
@@ -188,6 +249,7 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
                        transform_map_1,
                    Eigen::aligned_map<KeypointId, Eigen::AffineCompact2f>&
                        transform_map_2) const {
+    // std::cout<<"call trackpoints"<<std::endl;
     size_t num_points = transform_map_1.size();
 
     std::vector<KeypointId> ids;
@@ -331,11 +393,18 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
       last_keypoint_id++;
     }
 
+    if(config.vio_debug){
+      std::cout<<"cam0 detected points: "<< transforms->observations.at(0).size()<<std::endl;
+    }
+
     if (calib.intrinsics.size() > 1) {
       trackPoints(pyramid->at(0), pyramid->at(1), new_poses0, new_poses1);
 
       for (const auto& kv : new_poses1) {
         transforms->observations.at(1).emplace(kv);
+      }
+      if(config.vio_debug){
+        std::cout<<"cam1 tracked points from cam0: "<< transforms->observations.at(1).size()<<std::endl;
       }
     }
   }
@@ -378,6 +447,10 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
       } else {
         lm_to_remove.emplace(kpid[i]);
       }
+    }
+
+    if(config.vio_debug){
+      std::cout<<"kp: "<<kpid.size()<<", "<<"lm_to_remove: "<<lm_to_remove.size()<<std::endl;
     }
 
     for (int id : lm_to_remove) {

@@ -76,6 +76,7 @@ KeypointVioEstimator::KeypointVioEstimator(
   marg_H.diagonal().segment<3>(12).array() = config.vio_init_bg_weight;
 
   std::cout << "marg_H\n" << marg_H << std::endl;
+  std::cout<<"feature_match_show: "<<config.feature_match_show<<std::endl;  
 
   gyro_bias_weight = calib.gyro_bias_std.array().square().inverse();
   accel_bias_weight = calib.accel_bias_std.array().square().inverse();
@@ -85,8 +86,10 @@ KeypointVioEstimator::KeypointVioEstimator(
 
   opt_started = false;
 
-  vision_data_queue.set_capacity(10);
-  imu_data_queue.set_capacity(300);
+  vision_data_queue.set_capacity(100);
+  imu_data_queue.set_capacity(1000);
+
+  std::cout.precision(15);
 }
 
 void KeypointVioEstimator::initialize(int64_t t_ns, const Sophus::SE3d& T_w_i,
@@ -121,23 +124,27 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
 
     ImuData::Ptr data;
     imu_data_queue.pop(data);
-    data->accel = calib.calib_accel_bias.getCalibrated(data->accel);
-    data->gyro = calib.calib_gyro_bias.getCalibrated(data->gyro);
+    data->accel = calib.calib_accel_bias.getCalibrated(data->accel).transpose();
+    data->gyro = calib.calib_gyro_bias.getCalibrated(data->gyro).transpose();
 
     while (true) {
+      if(config.vio_debug){std::cout<<"opt_flow queue size: "<<vision_data_queue.size()<<std::endl;}
       vision_data_queue.pop(curr_frame);
-
+      int skipped_image = 0;
       if (config.vio_enforce_realtime) {
         // drop current frame if another frame is already in the queue.
-        while (!vision_data_queue.empty()) vision_data_queue.pop(curr_frame);
+        while (vision_data_queue.try_pop(curr_frame)) {skipped_image++;}
+        if(skipped_image)
+          std::cerr<< "[Warning] skipped opt flow size: "<<skipped_image<<std::endl;
       }
-
       if (!curr_frame.get()) {
         break;
       }
 
       // Correct camera time offset
-      // curr_frame->t_ns += calib.cam_time_offset_ns;
+      curr_frame->t_ns += calib.cam_time_offset_ns;
+      int imu_num{0};
+      int skipped_imu{0};
 
       if (!initialized) {
         while (data->t_ns < curr_frame->t_ns) {
@@ -150,9 +157,18 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
 
         Eigen::Vector3d vel_w_i_init;
         vel_w_i_init.setZero();
-
-        T_w_i_init.setQuaternion(Eigen::Quaterniond::FromTwoVectors(
+        Eigen::Quaterniond q_g_b(Eigen::Quaterniond::FromTwoVectors(
             data->accel, Eigen::Vector3d::UnitZ()));
+        // T_w_i_init.setQuaternion(Eigen::Quaterniond::FromTwoVectors(
+            // data->accel, Eigen::Vector3d::UnitZ()));
+          Eigen::Matrix<double, 3, 3> M_w_i;  //Yu: rotation matrix from imu to world
+          M_w_i<< 0, -1, 0,
+                  1, 0, 0,
+                  0, 0, 1;
+
+        Eigen::Quaterniond q_w_i(M_w_i);
+        std::cout<<"q_w_i: "<<q_w_i.w()<<", "<<q_w_i.x()<<", "<<q_w_i.y()<<", "<<q_w_i.z()<<std::endl;
+        T_w_i_init.setQuaternion(q_w_i*q_g_b);
 
         last_state_t_ns = curr_frame->t_ns;
         imu_meas[last_state_t_ns] =
@@ -180,28 +196,59 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
         meas.reset(new IntegratedImuMeasurement(
             prev_frame->t_ns, last_state.getState().bias_gyro,
             last_state.getState().bias_accel));
-
+        
+        if (config.vio_debug) {
+          std::cout<<"gyro bias: "<<last_state.getState().bias_gyro.transpose()<<std::endl;
+          std::cout<<"accel bias: "<<last_state.getState().bias_accel.transpose()<<std::endl<<std::endl;
+        }
         while (data->t_ns <= prev_frame->t_ns) {
           imu_data_queue.pop(data);
           if (!data.get()) break;
           data->accel = calib.calib_accel_bias.getCalibrated(data->accel);
           data->gyro = calib.calib_gyro_bias.getCalibrated(data->gyro);
+          skipped_imu++;
         }
 
+        auto pre_imu_time = prev_frame->t_ns;
         while (data->t_ns <= curr_frame->t_ns) {
+          if (config.vio_debug) {
+            std::cout<<"time diff"<<imu_num<<" btw imu frame: "<<double(data->t_ns * 1.e-9)<< "-" <<double(pre_imu_time * 1.e-9)<<" = "<<double((data->t_ns - pre_imu_time) * 1.e-9)<<std::endl;
+          }
+          pre_imu_time = data->t_ns;
           meas->integrate(*data, accel_cov, gyro_cov);
           imu_data_queue.pop(data);
           if (!data.get()) break;
           data->accel = calib.calib_accel_bias.getCalibrated(data->accel);
           data->gyro = calib.calib_gyro_bias.getCalibrated(data->gyro);
+          imu_num++;
         }
 
         if (meas->get_start_t_ns() + meas->get_dt_ns() < curr_frame->t_ns) {
           if (!data.get()) break;
-          int64_t tmp = data->t_ns;
-          data->t_ns = curr_frame->t_ns;
-          meas->integrate(*data, accel_cov, gyro_cov);
-          data->t_ns = tmp;
+          // if(!imu_num){
+          //   meas.reset();
+          //   std::cerr<< "[Warning] skipped vio optimization once due to imu data loss! "<<std::endl;
+          // }
+          // else{
+            if (config.vio_debug) {
+              std::cout<<"time diff"<<imu_num<<" btw imu frame: "<<double(curr_frame->t_ns * 1.e-9)<< "-" <<double((meas->get_dt_ns() + meas->get_start_t_ns()) * 1.e-9)<<" = "<<double((curr_frame->t_ns - meas->get_dt_ns() - meas->get_start_t_ns()) * 1.e-9)<<std::endl;
+            }
+            int64_t tmp = data->t_ns;
+            data->t_ns = curr_frame->t_ns;
+            meas->integrate(*data, accel_cov, gyro_cov);
+            data->t_ns = tmp;
+            imu_num++;
+          // }
+
+        }
+
+        if (config.vio_debug) {
+          std::cout<<"time between frames: "<<double(curr_frame->t_ns * 1.e-9)<< "-" <<double(prev_frame->t_ns * 1.e-9)<<" = "<<double((curr_frame->t_ns - prev_frame->t_ns) * 1.e-9)<<std::endl;
+          std::cout<<"imu num used for preintegration: "<<imu_num<<std::endl;
+          std::cout<<"skipped imu between frames: "<<skipped_imu<<std::endl;
+          std::cout<<"imu buffer size: "<<imu_data_queue.size()<<std::endl;
+          std::cout<<"current latest imu timestamp: "<<double(data->t_ns * 1.e-9) <<std::endl;
+
         }
       }
 
@@ -227,7 +274,11 @@ void KeypointVioEstimator::addIMUToQueue(const ImuData::Ptr& data) {
 
 void KeypointVioEstimator::addVisionToQueue(
     const OpticalFlowResult::Ptr& data) {
-  vision_data_queue.push(data);
+
+  if(!vision_data_queue.try_push(data)){
+    std::cout<<"visiond data queue is full: "<<vision_data_queue.size()<<std::endl;
+    abort();
+  }
 }
 
 bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
@@ -242,6 +293,19 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
 
     meas->predictState(frame_states.at(last_state_t_ns).getState(), g,
                        next_state);
+    
+    if (config.vio_debug) {
+      Eigen::AngleAxisd angleAxis(next_state.T_w_i.unit_quaternion());
+      std::cout<< "vel_w_i: "<<next_state.vel_w_i.transpose()<<std::endl;
+      std::cout << "T: " << next_state.T_w_i.translation().transpose()<< std::endl;
+      std::cout << "AxisAngle: " << angleAxis.angle() * 57.3 << ", "<<angleAxis.axis().transpose()<< std::endl<<std::endl;
+   
+      PoseVelState delta_state = meas->getDeltaState();
+      Eigen::AngleAxisd angleAxisDelta(delta_state.T_w_i.unit_quaternion());
+      std::cout<< "delta_state_vel_w_i: "<<delta_state.vel_w_i.transpose()<<std::endl;
+      std::cout << "delta_state_T: " << delta_state.T_w_i.translation().transpose()<< std::endl;
+      std::cout << "delta_state_AxisAngle: " << angleAxisDelta.angle() * 57.3 << ", "<<angleAxisDelta.axis().transpose()<< std::endl<<std::endl;
+    }
 
     last_state_t_ns = opt_flow_meas->t_ns;
     next_state.t_ns = opt_flow_meas->t_ns;
@@ -249,6 +313,9 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
     frame_states[last_state_t_ns] = next_state;
 
     imu_meas[meas->get_start_t_ns()] = *meas;
+  }
+  else{
+    std::cerr<<"skip imu measurement update once"<<std::endl;
   }
 
   // save results
@@ -260,7 +327,7 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
   std::unordered_set<int> unconnected_obs0;
   for (size_t i = 0; i < opt_flow_meas->observations.size(); i++) {
     TimeCamId tcid_target(opt_flow_meas->t_ns, i);
-
+    // Yu: add observations to landmark
     for (const auto& kv_obs : opt_flow_meas->observations[i]) {
       int kpt_id = kv_obs.first;
 
@@ -332,7 +399,7 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
       const double min_triang_distance2 =
           config.vio_min_triangulation_dist * config.vio_min_triangulation_dist;
       for (const auto& kv_obs : kp_obs) {
-        if (valid_kp) break;
+        if (valid_kp) break;     //Yu: break once we find a valid 3d point bwtween this and one of previous ovservtions 
         TimeCamId tcido = kv_obs.first;
 
         const Eigen::Vector2d p0 = opt_flow_meas->observations.at(0)
@@ -373,7 +440,7 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
           valid_kp = true;
         }
       }
-
+      // Yu:add all the obseervations to the newly added point
       if (valid_kp) {
         for (const auto& kv_obs : kp_obs) {
           lmdb.addObservation(kv_obs.first, kv_obs.second);

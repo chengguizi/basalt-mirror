@@ -67,8 +67,8 @@ class VioEstimatorBase {
       : out_state_queue(nullptr),
         out_marg_queue(nullptr),
         out_vis_queue(nullptr) {
-    vision_data_queue.set_capacity(10);
-    imu_data_queue.set_capacity(300);
+    vision_data_queue.set_capacity(100);
+    imu_data_queue.set_capacity(1000);
     last_processed_t_ns = 0;
     finished = false;
   }

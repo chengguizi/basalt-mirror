@@ -52,6 +52,7 @@ VioConfig::VioConfig() {
   optical_flow_levels = 3;
   optical_flow_epipolar_error = 0.005;
   optical_flow_skip_frames = 1;
+  feature_match_show = false;
 
   vio_max_states = 3;
   vio_max_kfs = 7;
@@ -129,6 +130,7 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.optical_flow_epipolar_error));
   ar(CEREAL_NVP(config.optical_flow_levels));
   ar(CEREAL_NVP(config.optical_flow_skip_frames));
+  ar(CEREAL_NVP(config.feature_match_show));
 
   ar(CEREAL_NVP(config.vio_max_states));
   ar(CEREAL_NVP(config.vio_max_kfs));

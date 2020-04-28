@@ -73,13 +73,19 @@ MargDataSaver::MargDataSaver(const std::string& path) {
 
         for (const auto& d : data->opt_flow_res) {
           if (processed_opt_flow.count(d->t_ns) == 0) {
-            save_image_queue.push(d);
+            if(!save_image_queue.try_push(d)){
+              std::cout<<"save image queue is full: "<<save_image_queue.size()<<std::endl;
+              abort();           
+            }
             processed_opt_flow.emplace(d->t_ns);
           }
         }
 
       } else {
-        save_image_queue.push(nullptr);
+        if(!save_image_queue.try_push(nullptr)){
+          std::cout<<"save image queue is full: "<<save_image_queue.size()<<std::endl;
+          abort();
+        }
         break;
       }
     }

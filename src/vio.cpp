@@ -236,7 +236,7 @@ int main(int argc, char** argv) {
     vio_config.load(config_path);
 
     if (vio_config.vio_enforce_realtime) {
-      vio_config.vio_enforce_realtime = false;
+      // vio_config.vio_enforce_realtime = false;
       std::cout
           << "The option vio_config.vio_enforce_realtime was enabled, "
              "but it should only be used with the live executables (supply "

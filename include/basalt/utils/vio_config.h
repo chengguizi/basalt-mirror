@@ -51,6 +51,7 @@ struct VioConfig {
   int optical_flow_levels;
   float optical_flow_epipolar_error;
   int optical_flow_skip_frames;
+  bool feature_match_show; //Yu: add feature match show func for debug
 
   int vio_max_states;
   int vio_max_kfs;

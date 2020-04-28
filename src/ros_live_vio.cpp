@@ -4,6 +4,7 @@
 #include <iostream>
 #include <memory>
 #include <thread>
+#include <stdlib.h>
 
 #include <sophus/se3.hpp>
 
@@ -76,6 +77,7 @@ std::string marg_data_path;
 std::mutex m;
 bool step_by_step = false;
 int64_t curr_t_ns = -1;
+int64_t pre_imu_seq = 0;
 
 // VIO variables
 basalt::Calibration<double> calib;
@@ -87,18 +89,32 @@ basalt::OpticalFlowInput::Ptr last_img_data;
 
 void imuCallback(const sensor_msgs::Imu::ConstPtr& imu_msg){
   // std::cout<<" got imu msgs"<<std::endl;
+  if(!pre_imu_seq) {
+    pre_imu_seq = imu_msg->header.seq;
+    return;
+    }
+  // std::cout<<"pre_imu_seq: "<<pre_imu_seq<<", cur_imu_seq: "<<imu_msg->header.seq<<std::endl;
+  BASALT_ASSERT(imu_msg->header.seq == pre_imu_seq + 1);
+  pre_imu_seq = imu_msg->header.seq;
+
   basalt::ImuData::Ptr data(new basalt::ImuData);
   data->t_ns = imu_msg->header.stamp.toNSec();
 
   data->accel = Eigen::Vector3d(
           imu_msg->linear_acceleration.x, imu_msg->linear_acceleration.y,
-          imu_msg->linear_acceleration.z);;
+          imu_msg->linear_acceleration.z);
   data->gyro = Eigen::Vector3d(
           imu_msg->angular_velocity.x, imu_msg->angular_velocity.y,
           imu_msg->angular_velocity.z);
   if (imu_data_queue) {
-    imu_data_queue->push(data);
-    std::cout<< "imu data size is "<< imu_data_queue->size()<<std::endl;
+    if(imu_data_queue->try_push(data)){
+      if(vio_config.vio_debug)
+        std::cout<< "imu data size is "<< imu_data_queue->size()<<std::endl;
+    }
+    else{
+      std::cout<<"imu data buffer is full: "<<imu_data_queue->size()<<std::endl;
+      abort();
+    }
   }
 }
 
@@ -112,27 +128,14 @@ int main(int argc, char** argv) {
   bool show_gui = true;
   bool print_queue = false;
   int num_threads = 0;
+  bool use_imu = true;
   local_nh.param<std::string>("calib_file", cam_calib_path, "basalt_ws/src/basalt/data/zed_calib.json");
   local_nh.param<std::string>("config_path", config_path, "basalt_ws/src/basalt/data/zed_config.json");
   local_nh.param("show_gui", show_gui, true);
   local_nh.param("print_queue", print_queue, false);
   local_nh.param("terminate", terminate, false);
+  local_nh.param("use_imu", use_imu, true);
   local_nh.param<std::string>("marg_data_path", marg_data_path, "/marg_data_path");
-  StereoProcessor::Parameters stereoParam;
-  stereoParam.queue_size = 3;
-  stereoParam.left_topic = "/zed/left/image_raw_color";
-  stereoParam.right_topic = "/zed/right/image_raw_color";
-  stereoParam.left_info_topic = "/zed/left/camera_info_raw";
-  stereoParam.right_info_topic = "/zed/right/camera_info_raw";
-  StereoProcessor stereo_sub(stereoParam);
-  last_img_data = stereo_sub.last_img_data;
-  ros::Subscriber Imusub = nh.subscribe("/mavros/imu/data/sys_id_9", 1, imuCallback);
-  ros::AsyncSpinner spinner(4);
-  spinner.start();
-
-  if (num_threads > 0) {
-    tbb::task_scheduler_init init(num_threads);
-  }
 
   if (!config_path.empty()) {
     vio_config.load(config_path);
@@ -140,15 +143,40 @@ int main(int argc, char** argv) {
     vio_config.optical_flow_skip_frames = 2;
   }
 
+  StereoProcessor::Parameters stereoParam;
+  stereoParam.queue_size = 3;
+  stereoParam.left_topic = "/zed/left/image_raw_color";
+  stereoParam.right_topic = "/zed/right/image_raw_color";
+  stereoParam.left_info_topic = "/zed/left/camera_info_raw";
+  stereoParam.right_info_topic = "/zed/right/camera_info_raw";
+  StereoProcessor stereo_sub(vio_config, stereoParam);
+  last_img_data = stereo_sub.last_img_data;
+  ros::Subscriber Imusub = nh.subscribe("/mavros/imu/data/sys_id_9", 10, imuCallback);
+  ros::AsyncSpinner spinner(4);
+  spinner.start();
+
+  if (num_threads > 0) {
+    tbb::task_scheduler_init init(num_threads);
+  }
 
   //  load calibration
   load_data(cam_calib_path);
+
+  std::cout<<"calib.T_i_c: " << calib.T_i_c[0].translation().x() << ","
+              << calib.T_i_c[0].translation().y() << ","
+              << calib.T_i_c[0].translation().z() << ","
+              << calib.T_i_c[0].unit_quaternion().w() << ","
+              << calib.T_i_c[0].unit_quaternion().x() << ","
+              << calib.T_i_c[0].unit_quaternion().y() << ","
+              << calib.T_i_c[0].unit_quaternion().z() << std::endl<<std::endl;
+
 
   opt_flow_ptr = basalt::OpticalFlowFactory::getOpticalFlow(vio_config, calib);
   stereo_sub.image_data_queue = &opt_flow_ptr->input_queue;
 
   vio = basalt::VioEstimatorFactory::getVioEstimator(
-      vio_config, calib, basalt::constants::g, true);
+      vio_config, calib, basalt::constants::g, use_imu);
+
   vio->initialize(Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
   imu_data_queue = &vio->imu_data_queue;
 
@@ -190,7 +218,6 @@ int main(int argc, char** argv) {
 
       if (curr_t_ns < 0) curr_t_ns = t_ns;
 
-      std::cerr << "t_ns " << t_ns << std::endl;
       Sophus::SE3d T_w_i = data->T_w_i;
       Eigen::Vector3d vel_w_i = data->vel_w_i;
       Eigen::Vector3d bg = data->bias_gyro;
@@ -201,6 +228,7 @@ int main(int argc, char** argv) {
 
       geometry_msgs::PoseWithCovarianceStamped poseMsg;
       poseMsg.header.stamp.nsec = t_ns;
+      poseMsg.header.frame_id = "basalt";
       poseMsg.pose.pose.position.x =  T_w_i.translation()[0];
       poseMsg.pose.pose.position.y =  T_w_i.translation()[1];
       poseMsg.pose.pose.position.z =  T_w_i.translation()[2];

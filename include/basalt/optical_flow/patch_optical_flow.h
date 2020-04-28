@@ -47,6 +47,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <basalt/image/image_pyr.h>
 #include <basalt/utils/keypoints.h>
+#include <stdlib.h>
+
 
 namespace basalt {
 
@@ -74,13 +76,16 @@ class PatchOpticalFlow : public OpticalFlowBase {
         config(config),
         calib(calib) {
     patches.reserve(3000);
-    input_queue.set_capacity(10);
+    input_queue.set_capacity(100);
 
     patch_coord = PatchT::pattern2.template cast<float>();
 
     if (calib.intrinsics.size() > 1) {
       Sophus::SE3d T_i_j = calib.T_i_c[0].inverse() * calib.T_i_c[1];
-      computeEssential(T_i_j, E);
+      // Sophus::SE3d T_i_j;
+      // T_i_j.setQuaternion(Eigen::Quaternion(0.0021187, -0.0019631, 0.0001541, 0.9999958));
+      // T_i_j.translation() = Eigen::Vector3d(0.120084, -0.162854, -0.0852036);
+      computeEssential(T_i_j, E);   //Todo(Yu): put the calibrated parameters here
     }
 
     processing_thread.reset(
@@ -149,6 +154,9 @@ class PatchOpticalFlow : public OpticalFlowBase {
         trackPoints(old_pyramid->at(i), pyramid->at(i),
                     transforms->observations[i],
                     new_transforms->observations[i]);
+        if(config.vio_debug){
+          std::cout<<"cam"<<i<<"_pre_points: "<< transforms->observations.at(i).size()<<"tracked points: "<<new_transforms->observations[i].size()<<"track ratio: "<< float(new_transforms->observations[i].size())/transforms->observations.at(i).size()<<std::endl;
+        }
       }
 
       transforms = new_transforms;
@@ -159,7 +167,10 @@ class PatchOpticalFlow : public OpticalFlowBase {
     }
 
     if (output_queue && frame_counter % config.optical_flow_skip_frames == 0) {
-      output_queue->push(transforms);
+      if(!output_queue->try_push(transforms)){
+        std::cout<<"optical flow output queue is full: "<<output_queue->size()<<std::endl;
+        abort();
+      }
     }
     frame_counter++;
   }
@@ -221,6 +232,7 @@ class PatchOpticalFlow : public OpticalFlowBase {
 
     transform_map_2.clear();
     transform_map_2.insert(result.begin(), result.end());
+
   }
 
   inline bool trackPoint(const basalt::ManagedImagePyr<uint16_t>& pyr,
@@ -312,11 +324,18 @@ class PatchOpticalFlow : public OpticalFlowBase {
       last_keypoint_id++;
     }
 
+    if(config.vio_debug){
+        std::cout<<"cam0 detected points: "<< transforms->observations.at(0).size()<<std::endl;
+      }
+
     if (calib.intrinsics.size() > 1) {
       trackPoints(pyramid->at(0), pyramid->at(1), new_poses0, new_poses1);
 
       for (const auto& kv : new_poses1) {
         transforms->observations.at(1).emplace(kv);
+      }
+      if(config.vio_debug){
+        std::cout<<"cam1 tracked points from cam0: "<< transforms->observations.at(1).size()<<std::endl;
       }
     }
   }
@@ -360,6 +379,10 @@ class PatchOpticalFlow : public OpticalFlowBase {
 
     for (int id : lm_to_remove) {
       transforms->observations.at(1).erase(id);
+    }
+    
+    if(config.vio_debug){
+        std::cout<<"cam1 remained points after filter: "<<transforms->observations.at(1).size()<<"  removed points: "<< lm_to_remove.size()<<std::endl;
     }
   }
 

@@ -16,7 +16,8 @@
 
 
 #include <tbb/tbb.h>
-
+#include <stdlib.h>
+#include <basalt/utils/vio_config.h>
 /**
  * This is an abstract base class for stereo image processing nodes.
  * It handles synchronization of input topics (approximate or exact)
@@ -48,6 +49,7 @@ public:
 
 private:
 
+	basalt::VioConfig config;
 	Parameters param;
 
 	// subscriber
@@ -143,8 +145,14 @@ private:
 
 		last_img_data = data;
 		if (image_data_queue) {
-			image_data_queue->push(data);
-			std::cout<< "push image data, the current queue size is: "<<image_data_queue->size()<<std::endl;
+			if(image_data_queue->try_push(data)){
+				if(config.vio_debug)
+					std::cout<< "**current image queue size is: "<<image_data_queue->size()<<std::endl<<std::endl;
+			}
+			else{
+      			std::cout<<"image data buffer is full: "<<image_data_queue->size()<<std::endl;
+      			abort();
+    			}
 			}
 	}
 
@@ -185,12 +193,12 @@ public:
 	 * \param transport The image transport to use
 	 */
 
-	StereoProcessor(int queue_size, const std::string& left_topic, const std::string& right_topic, 
-					const std::string& left_info_topic, const std::string& right_info_topic ) : StereoProcessor( Parameters{queue_size,left_topic,right_topic, left_info_topic, right_info_topic})
-	{
-	}
+	// StereoProcessor(int queue_size, const std::string& left_topic, const std::string& right_topic, 
+	// 				const std::string& left_info_topic, const std::string& right_info_topic ) : StereoProcessor( Parameters{queue_size,left_topic,right_topic, left_info_topic, right_info_topic})
+	// {
+	// }
 
-	StereoProcessor(const Parameters& param) :  param(param), 
+	StereoProcessor(const basalt::VioConfig& config, const Parameters& param) :  config(config), param(param), 
 		left_received_(0), right_received_(0), left_info_received_(0), right_info_received_(0), all_received_(0), 
 		exact_sync_(ExactPolicy(param.queue_size), left_sub_, right_sub_, left_info_sub_, right_info_sub_)
 	{
@@ -204,7 +212,6 @@ public:
 		ROS_INFO("viso2_ros: Subscribing to:\n\t* %s\n\t* %s\n\t* %s\n\t* %s", 
 				param.left_topic.c_str(), param.right_topic.c_str(),
 				param.left_info_topic.c_str(), param.right_info_topic.c_str());
-
 		image_transport::ImageTransport it(nh);
 		//image_transport::TransportHints hints(transport,ros::TransportHints().tcpNoDelay());
 		left_sub_.subscribe(it, param.left_topic, 10); //, hints); // http://docs.ros.org/diamondback/api/image_transport/html/classimage__transport_1_1TransportHints.html
