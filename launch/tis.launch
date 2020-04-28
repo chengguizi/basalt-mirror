@@ -1,0 +1,32 @@
+<!-- -->
+<launch>
+<!-- <arg name="system_id" default="6"/> -->
+
+<node pkg="basalt" type="basalt_vio_ros" name="basalt_vio_ros" output="screen">
+    <remap from="/mavros/imu/data/sys_id_9" to ="/tiscamera_ros/imu"/>  
+    <remap from="/zed/left/image_raw_color" to ="/tiscamera_ros/left/image_rect_raw"/>  
+    <remap from="/zed/right/image_raw_color" to ="/tiscamera_ros/right/image_rect_raw"/>  
+    <remap from="/zed/left/camera_info_raw" to ="/tiscamera_ros/left/camera_info"/>  
+    <remap from="/zed/right/camera_info_raw" to ="/tiscamera_ros/right/camera_info"/>  
+
+    
+    <param name="calib_file" type = "string" value="$(find basalt)/data/tis_calib.json"/> 
+    <param name="config_path" type = "string" value="$(find basalt)/data/tis_config.json"/> 
+    <param name="marg_data_path" type = "string" value="/home/yu/.ros/basalt/marg"/> 
+    <param name= "show_gui" value="true"/>
+    <param name= "print_queue" value="false"/>
+    <param name= "terminate" value="false"/>
+</node>
+
+<node pkg="rosbag" type="play" name="player" args="-r 1 --pause --clock /home/yu/Documents/data/tis/tis_outdoor_2020-04-01-11-00-58.bag"/>
+
+<!-- 
+    <node  pkg="tiscamera_ros" name="tiscamera_ros" type="tiscamera_ros" >
+        <param name="sync_rate" type="int" value="20"/>
+        <rosparam file="$(find tiscamera_ros)/launch/device_list.yaml"/>
+        <rosparam file="$(find tiscamera_ros)/launch/param_37UX273_ML.yaml" ns="37UX273_ML"/>
+        <rosparam file="$(find tiscamera_ros)/launch/camchain.yaml" ns="calibration"/>
+    </node> -->
+</launch>
+
+<!-- launch-prefix="gdb -ex run args"  -->
