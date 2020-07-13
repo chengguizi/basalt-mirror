@@ -43,7 +43,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <opengv/relative_pose/CentralRelativeAdapter.hpp>
 #include <opengv/relative_pose/methods.hpp>
 #include <opengv/sac/Ransac.hpp>
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
 #include <opengv/sac_problems/relative_pose/CentralRelativePoseSacProblem.hpp>
+#pragma GCC diagnostic pop
 
 namespace basalt {
 
@@ -205,7 +209,7 @@ void detectKeypoints(
       int points_added = 0;
       int threshold = 40;
 
-      while (points_added < num_points_cell && threshold >= 10) {
+      while (points_added < num_points_cell && threshold >= 5) {
         std::vector<cv::KeyPoint> points;
         cv::FAST(subImg, points, threshold);
 

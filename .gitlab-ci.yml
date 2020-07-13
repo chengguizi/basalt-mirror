@@ -1,4 +1,4 @@
-image: vladyslavusenko/b_image:latest
+image: vladyslavusenko/b_image_bionic:latest
 
 variables:
   GIT_SUBMODULE_STRATEGY: recursive
@@ -106,6 +106,23 @@ stages:
     - cd scripts/eval_full
     - ./run_evaluations.sh
 
+# template to evaluate on TUM-VI sequences
+.eval_tumvi_template: &eval_tumvi_definition
+  stage: eval
+  parallel: 4
+  tags: [docker, dataset-eval]
+  variables:
+    GIT_STRATEGY: none
+  artifacts:
+    paths:
+    - scripts/eval_full/eval_results_tumvi/*
+    expire_in: 1 week
+  script:
+    - dpkg -i deb_bionic/*.deb
+    - cd scripts/eval_full
+    - ./run_evaluations_tumvi.sh
+
+
 .eval_euroc_template: &eval_kitti_definition
   stage: eval
   parallel: 10
@@ -124,6 +141,7 @@ stages:
 bionic-release-compile:
   <<: *prepare_docker_definition
   <<: *compile_test_package_definition
+  image: vladyslavusenko/b_image_bionic:latest
   variables:
     CXX_MARCH: 'sandybridge'
     DEB_DIR: deb_bionic
@@ -145,6 +163,20 @@ xenial-release-compile:
   artifacts:
     paths:
     - deb_xenial/*.deb
+    expire_in: 1 week
+
+focal-release-compile:
+  <<: *prepare_docker_definition
+  <<: *compile_test_package_definition
+  image: vladyslavusenko/b_image_focal:latest
+  only:
+    - master
+  variables:
+    CXX_MARCH: 'sandybridge'
+    DEB_DIR: deb_focal
+  artifacts:
+    paths:
+    - deb_focal/*.deb
     expire_in: 1 week
 
 bionic-debug-compile:
@@ -179,6 +211,24 @@ mojave-relwithdebinfo-compile:
   variables:
     BUILD_TYPE: CiRelWithDebInfo
 
+catalina-relwithdebinfo-compile:
+  <<: *compile_test_definition
+  tags: [macos, "10.15"]
+  only:
+    - master
+  variables:
+    BUILD_TYPE: CiRelWithDebInfo
+
+catalina-brewclang-relwithdebinfo-compile:
+  <<: *compile_test_definition
+  tags: [macos, "10.15"]
+  only:
+    - master
+  variables:
+    BUILD_TYPE: CiRelWithDebInfo
+    CC: /usr/local/opt/llvm/bin/clang
+    CXX: /usr/local/opt/llvm/bin/clang++
+
 # check if clang-format would make any changes
 clang-format:
   tags:
@@ -193,6 +243,7 @@ clang-format:
 
 bionic-test:
   <<: *test_deb_definition
+  image: vladyslavusenko/b_image_bionic:latest
   only:
     - master
   variables:
@@ -208,6 +259,15 @@ xenial-test:
     DEB_DIR: deb_xenial
     GIT_STRATEGY: none
 
+focal-test:
+  <<: *test_deb_definition
+  image: vladyslavusenko/b_image_focal:latest
+  only:
+    - master
+  variables:
+    DEB_DIR: deb_focal
+    GIT_STRATEGY: none
+
 # evaluate on EuRoC sequences
 eval_euroc_master:
   <<: *eval_euroc_definition
@@ -217,6 +277,20 @@ eval_euroc_master:
 # evaluate on EuRoC sequences
 eval_euroc:
   <<: *eval_euroc_definition
+  when: manual
+  except:
+    - master
+  allow_failure: false
+
+# evaluate on TUM-VI sequences
+eval_tumvi_master:
+  <<: *eval_tumvi_definition
+  only:
+    - master
+
+# evaluate on TUM-VI sequences
+eval_tumvi:
+  <<: *eval_tumvi_definition
   when: manual
   except:
     - master
@@ -248,6 +322,7 @@ gen_results:
     paths:
     - euroc_results.txt
     - kitti_results.txt
+    - tumvi_results.txt
     - scripts/eval_full/eval_results/*
   script:
     - cd scripts/eval_full
@@ -255,8 +330,11 @@ gen_results:
     - cat euroc_results.txt
     - ./gen_results_kitti.py eval_results_kitti > kitti_results.txt
     - cat kitti_results.txt
+    - ./gen_results_tumvi.py eval_results_tumvi > tumvi_results.txt
+    - cat tumvi_results.txt
     - mv euroc_results.txt ../../
     - mv kitti_results.txt ../../
+    - mv tumvi_results.txt ../../
 
 # deploy deb packages
 deploy:
@@ -278,6 +356,7 @@ deploy:
   script:
     - scp $SCP_FLAGS deb_xenial/*.deb $REPOSITORY_URL/xenial/    
     - scp $SCP_FLAGS deb_bionic/*.deb $REPOSITORY_URL/bionic/
+    - scp $SCP_FLAGS deb_focal/*.deb $REPOSITORY_URL/focal/
     
 
 .docker_build_template: &docker_build_definition
@@ -303,7 +382,7 @@ docker-build-bionic:
   variables:
     DOCKER_TLS_CERTDIR: '/certs'
     GIT_SUBMODULE_STRATEGY: none
-    B_IMAGE_NAME: b_image
+    B_IMAGE_NAME: b_image_bionic
 
 docker-build-xenial:
   <<: *docker_build_definition
@@ -311,6 +390,13 @@ docker-build-xenial:
     DOCKER_TLS_CERTDIR: '/certs'
     GIT_SUBMODULE_STRATEGY: none
     B_IMAGE_NAME: b_image_xenial
+
+docker-build-focal:
+  <<: *docker_build_definition
+  variables:
+    DOCKER_TLS_CERTDIR: '/certs'
+    GIT_SUBMODULE_STRATEGY: none
+    B_IMAGE_NAME: b_image_focal
 
 
 
@@ -329,16 +415,23 @@ docker-build-xenial:
     - basalt_rs_t265_vio --help
     - basalt_rs_t265_record --help
 
-repository-check-bionic:
+bionic-repository-check:
   image: ubuntu:18.04
   <<: *repository_check_definition
   variables:
     GIT_STRATEGY: none
     REPO_NAME: bionic
 
-repository-check-xenial:
+xenial-repository-check:
   image: ubuntu:16.04
   <<: *repository_check_definition
   variables:
     GIT_STRATEGY: none
     REPO_NAME: xenial
+
+focal-repository-check:
+  image: ubuntu:20.04
+  <<: *repository_check_definition
+  variables:
+    GIT_STRATEGY: none
+    REPO_NAME: focal

@@ -42,7 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <sophus/se3.hpp>
 
 #include <tbb/concurrent_unordered_map.h>
-#include <tbb/tbb.h>
+#include <tbb/global_control.h>
 
 #include <pangolin/display/image_view.h>
 #include <pangolin/gl/gldraw.h>
@@ -130,7 +130,7 @@ Eigen::aligned_vector<Eigen::Vector3d> gt_t_w_i;
 std::string marg_data_path;
 size_t last_frame_processed = 0;
 
-tbb::concurrent_unordered_map<int64_t, int> timestamp_to_id;
+tbb::concurrent_unordered_map<int64_t, int, std::hash<int64_t>> timestamp_to_id;
 
 std::mutex m;
 std::condition_variable cv;
@@ -222,8 +222,11 @@ int main(int argc, char** argv) {
                  "Save trajectory. Supported formats <tum, euroc, kitti>");
   app.add_option("--use-imu", use_imu, "Use IMU.");
 
+  // global thread limit is in effect until global_control object is destroyed
+  std::unique_ptr<tbb::global_control> tbb_global_control;
   if (num_threads > 0) {
-    tbb::task_scheduler_init init(num_threads);
+    tbb_global_control = std::make_unique<tbb::global_control>(
+        tbb::global_control::max_allowed_parallelism, num_threads);
   }
 
   try {

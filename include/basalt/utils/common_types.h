@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <Eigen/StdVector>
 #include <sophus/se3.hpp>
 
+#include <basalt/utils/hash.h>
 #include <basalt/utils/sophus_utils.hpp>
 
 namespace basalt {
@@ -109,7 +110,8 @@ struct KeypointsData {
 };
 
 /// feature corners is a collection of { imageId => KeypointsData }
-using Corners = tbb::concurrent_unordered_map<TimeCamId, KeypointsData>;
+using Corners = tbb::concurrent_unordered_map<TimeCamId, KeypointsData,
+                                              std::hash<TimeCamId>>;
 
 /// feature matches for an image pair
 struct MatchData {
@@ -127,7 +129,7 @@ struct MatchData {
 /// feature matches is a collection of { (imageId, imageId) => MatchData }
 using Matches = tbb::concurrent_unordered_map<
     std::pair<TimeCamId, TimeCamId>, MatchData,
-    tbb::tbb_hash<std::pair<TimeCamId, TimeCamId>>,
+    std::hash<std::pair<TimeCamId, TimeCamId>>,
     std::equal_to<std::pair<TimeCamId, TimeCamId>>,
     Eigen::aligned_allocator<
         std::pair<const std::pair<TimeCamId, TimeCamId>, MatchData>>>;
@@ -267,6 +269,7 @@ using ImageProjections = std::map<TimeCamId, ImageProjection>;
 /// inlier projections indexed per track
 using TrackProjections =
     std::unordered_map<TrackId, std::map<TimeCamId, ProjectedLandmarkConstPtr>>;
+
 }  // namespace basalt
 
 namespace cereal {
@@ -285,20 +288,17 @@ template <class Archive>
 void serialize(Archive& ar, basalt::MatchData& c) {
   ar(c.T_i_j, c.matches, c.inliers);
 }
+
 }  // namespace cereal
 
 namespace std {
-
-inline void hash_combine(std::size_t& seed, std::size_t value) {
-  seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-}
 
 template <>
 struct hash<basalt::TimeCamId> {
   size_t operator()(const basalt::TimeCamId& x) const {
     size_t seed = 0;
-    hash_combine(seed, std::hash<int>()(x.frame_id));
-    hash_combine(seed, std::hash<int>()(x.cam_id));
+    basalt::hash_combine(seed, x.frame_id);
+    basalt::hash_combine(seed, x.cam_id);
     return seed;
   }
 };
@@ -308,22 +308,12 @@ struct hash<std::pair<basalt::TimeCamId, basalt::TimeCamId>> {
   size_t operator()(
       const std::pair<basalt::TimeCamId, basalt::TimeCamId>& x) const {
     size_t seed = 0;
-    hash_combine(seed, std::hash<int>()(x.first.frame_id));
-    hash_combine(seed, std::hash<int>()(x.first.cam_id));
-    hash_combine(seed, std::hash<int>()(x.second.frame_id));
-    hash_combine(seed, std::hash<int>()(x.second.cam_id));
+    basalt::hash_combine(seed, x.first.frame_id);
+    basalt::hash_combine(seed, x.first.cam_id);
+    basalt::hash_combine(seed, x.second.frame_id);
+    basalt::hash_combine(seed, x.second.cam_id);
     return seed;
   }
 };
+
 }  // namespace std
-
-namespace tbb {
-
-template <>
-struct tbb_hash<basalt::TimeCamId> : public std::hash<basalt::TimeCamId> {};
-
-template <>
-struct tbb_hash<std::pair<basalt::TimeCamId, basalt::TimeCamId>>
-    : public std::hash<std::pair<basalt::TimeCamId, basalt::TimeCamId>> {};
-
-}  // namespace tbb

@@ -29,25 +29,16 @@ Calibration (describes B-spline trajectory representation used in camera-IMU cal
 
 
 ## Installation
-### APT installation for Ubuntu 16.04 and 18.04 (Fast)
-Set up keys
+### APT installation for Ubuntu 20.04, 18.04 and 16.04 (Fast)
+Set up keys, add the repository to the sources list, update the Ubuntu package index and install Basalt:
 ```
 sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 0D97B6C9
-```
-Add the repository to the sources list. On **Ubuntu 18.04** run:
-```
-sudo sh -c 'echo "deb [arch=amd64] http://packages.usenko.eu/ubuntu bionic main" > /etc/apt/sources.list.d/basalt.list'
-```
-On **Ubuntu 16.04** run:
-```
-sudo sh -c 'echo "deb [arch=amd64] http://packages.usenko.eu/ubuntu xenial main" > /etc/apt/sources.list.d/basalt.list'
-```
-Update the Ubuntu package index and install Basalt:
-```
+sudo sh -c 'echo "deb [arch=amd64] http://packages.usenko.eu/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/basalt.list'
 sudo apt-get update
 sudo apt-get install basalt
 ```
-### Source installation for Ubuntu 18.04 and MacOS >= 10.11 El Capitan
+
+### Source installation for Ubuntu >= 18.04 and MacOS >= 10.14 Mojave
 Clone the source code for the project and build it. For MacOS you should have [Homebrew](https://brew.sh/) installed.
 ```
 git clone --recursive https://gitlab.com/VladyslavUsenko/basalt.git

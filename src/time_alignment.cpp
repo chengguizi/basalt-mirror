@@ -45,8 +45,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <basalt/utils/filesystem.h>
 #include <basalt/calibration/calibration.hpp>
 
-#include <tbb/tbb.h>
-
 #include <CLI/CLI.hpp>
 
 basalt::Calibration<double> calib;
@@ -86,9 +84,6 @@ double compute_error(
 }
 
 int main(int argc, char **argv) {
-  tbb::task_scheduler_init init(
-      tbb::task_scheduler_init::default_num_threads());
-
   std::string dataset_path;
   std::string calibration_path;
   std::string mocap_calibration_path;
@@ -414,13 +409,15 @@ int main(int argc, char **argv) {
 
     std::string save_button_name = "ui.save_aligned_dataset";
     // Disable save_aligned_dataset button if GT data already exists
-    if (fs::exists(fs::path(dataset_path + "mav0/gt/data.csv"))) {
+    if (basalt::fs::exists(
+            basalt::fs::path(dataset_path + "mav0/gt/data.csv"))) {
       save_button_name += "(disabled)";
     }
 
     pangolin::Var<std::function<void(void)>> save_aligned_dataset(
         save_button_name, [&]() {
-          if (fs::exists(fs::path(dataset_path + "mav0/gt/data.csv"))) {
+          if (basalt::fs::exists(
+                  basalt::fs::path(dataset_path + "mav0/gt/data.csv"))) {
             std::cout << "Aligned ground-truth data already exists, skipping. "
                          "If you want to run the calibration again delete "
                       << dataset_path << "mav0/gt/ folder." << std::endl;
@@ -431,7 +428,7 @@ int main(int argc, char **argv) {
           // output corrected mocap data
           Sophus::SE3d T_mark_i;
           if (use_calib) T_mark_i = mocap_calib.T_i_mark.inverse();
-          fs::create_directory(dataset_path + "mav0/gt/");
+          basalt::fs::create_directory(dataset_path + "mav0/gt/");
           std::ofstream gt_out_stream;
           gt_out_stream.open(dataset_path + "mav0/gt/data.csv");
           gt_out_stream

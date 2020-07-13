@@ -37,6 +37,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <basalt/utils/apriltag.h>
 
+#include <tbb/parallel_for.h>
+
 #include <opengv/absolute_pose/CentralAbsoluteAdapter.hpp>
 #include <opengv/absolute_pose/methods.hpp>
 
@@ -44,8 +46,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <opengv/relative_pose/methods.hpp>
 
 #include <opengv/sac/Ransac.hpp>
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
 #include <opengv/sac_problems/absolute_pose/AbsolutePoseSacProblem.hpp>
 #include <opengv/sac_problems/relative_pose/CentralRelativePoseSacProblem.hpp>
+#pragma GCC diagnostic pop
 
 #include <opencv2/calib3d/calib3d.hpp>
 
@@ -63,7 +69,9 @@ bool estimateTransformation(
 
   for (size_t i = 0; i < corners.size(); i++) {
     Eigen::Vector4d tmp;
-    cam_calib.unproject(corners[i], tmp);
+    if (!cam_calib.unproject(corners[i], tmp)) {
+      continue;
+    }
     Eigen::Vector3d bearing = tmp.head<3>();
     Eigen::Vector3d point = aprilgrid_corner_pos_3d[corner_ids[i]].head<3>();
     bearing.normalize();
@@ -97,11 +105,9 @@ bool estimateTransformation(
   return ransac.inliers_.size() > 8;
 }
 
-void CalibHelper::detectCorners(
-    const VioDatasetPtr &vio_data,
-    tbb::concurrent_unordered_map<TimeCamId, CalibCornerData> &calib_corners,
-    tbb::concurrent_unordered_map<TimeCamId, CalibCornerData>
-        &calib_corners_rejected) {
+void CalibHelper::detectCorners(const VioDatasetPtr &vio_data,
+                                CalibCornerMap &calib_corners,
+                                CalibCornerMap &calib_corners_rejected) {
   calib_corners.clear();
   calib_corners_rejected.clear();
 
@@ -144,9 +150,7 @@ void CalibHelper::detectCorners(
 void CalibHelper::initCamPoses(
     const Calibration<double>::Ptr &calib,
     const Eigen::aligned_vector<Eigen::Vector4d> &aprilgrid_corner_pos_3d,
-    tbb::concurrent_unordered_map<TimeCamId, CalibCornerData> &calib_corners,
-    tbb::concurrent_unordered_map<TimeCamId, CalibInitPoseData>
-        &calib_init_poses) {
+    CalibCornerMap &calib_corners, CalibInitPoseMap &calib_init_poses) {
   calib_init_poses.clear();
 
   std::vector<TimeCamId> corners;
