@@ -155,7 +155,7 @@ class PatchOpticalFlow : public OpticalFlowBase {
                     transforms->observations[i],
                     new_transforms->observations[i]);
         if(config.vio_debug){
-          std::cout<<"cam"<<i<<"_pre_points: "<< transforms->observations.at(i).size()<<"tracked points: "<<new_transforms->observations[i].size()<<"track ratio: "<< float(new_transforms->observations[i].size())/transforms->observations.at(i).size()<<std::endl;
+          std::cout<<"cam"<<i<<"_pre_points: "<< transforms->observations.at(i).size()<<" tracked points: "<<new_transforms->observations[i].size()<<" track ratio: "<< float(new_transforms->observations[i].size())/transforms->observations.at(i).size()<<std::endl;
         }
       }
 

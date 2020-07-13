@@ -197,10 +197,10 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
             prev_frame->t_ns, last_state.getState().bias_gyro,
             last_state.getState().bias_accel));
         
-        if (config.vio_debug) {
-          std::cout<<"gyro bias: "<<last_state.getState().bias_gyro.transpose()<<std::endl;
-          std::cout<<"accel bias: "<<last_state.getState().bias_accel.transpose()<<std::endl<<std::endl;
-        }
+        // if (config.vio_debug) {
+        //   std::cout<<"gyro bias: "<<last_state.getState().bias_gyro.transpose()<<std::endl;
+        //   std::cout<<"accel bias: "<<last_state.getState().bias_accel.transpose()<<std::endl<<std::endl;
+        // }
         while (data->t_ns <= prev_frame->t_ns) {
           imu_data_queue.pop(data);
           if (!data.get()) break;
@@ -427,7 +427,9 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
 
         Eigen::Vector4d p0_triangulated =
             triangulate(p0_3d.head<3>(), p1_3d.head<3>(), T_0_1);
-
+        // if(config.vio_debug){
+        //   std::cout<<"p0_triangulated: "<<p0_triangulated<<std::endl;
+        // }
         if (p0_triangulated.array().isFinite().all() &&
             p0_triangulated[3] > 0 && p0_triangulated[3] < 3.0) {
           KeypointPosition kpt_pos;
@@ -441,6 +443,9 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
         }
       }
       // Yu:add all the obseervations to the newly added point
+      // if(config.vio_debug){
+      //     std::cout<<"valid_kp: "<<valid_kp<<std::endl;
+      // }
       if (valid_kp) {
         for (const auto& kv_obs : kp_obs) {
           lmdb.addObservation(kv_obs.first, kv_obs.second);
@@ -488,6 +493,9 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
   }
 
   last_processed_t_ns = last_state_t_ns;
+  if(config.vio_debug){
+    std::cout<<"numLandmarks: "<<lmdb.numLandmarks()<<std::endl;
+  }
 
   return true;
 }

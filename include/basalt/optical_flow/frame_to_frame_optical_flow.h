@@ -54,7 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/core/core.hpp>
 #include <opencv/cv.hpp>
-
+#include <sstream>
 namespace basalt {
 
 template <typename Scalar, template <typename> typename Pattern>
@@ -173,21 +173,29 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
       new_transforms->t_ns = t_ns;
 
       // hm: perform feature tracking for each camera separately
+      //Yu: track from previous frame to current ones
       for (size_t i = 0; i < calib.intrinsics.size(); i++) {
+        if(config.vio_debug){
+          std::cout<<"cam"<<i<<" track from previous frame to current one"<<std::endl;
+
+        }
         trackPoints(old_pyramid->at(i), pyramid->at(i),
                     transforms->observations[i],
                     new_transforms->observations[i]);
 
         if(config.vio_debug){
-          std::cout<<"cam"<<i<<"_pre_points: "<< transforms->observations.at(i).size()<<", tracked points: "<<new_transforms->observations[i].size()<<"track ratio: "<< float(new_transforms->observations[i].size())/transforms->observations.at(i).size()<<std::endl;
+          std::cout<<"cam"<<i<<"_pre_points: "<< transforms->observations.at(i).size()<<", tracked points from previous frame: "<<new_transforms->observations[i].size()<<" track ratio: "<< float(new_transforms->observations[i].size())/transforms->observations.at(i).size()<<std::endl;
         }
       }
 
       transforms = new_transforms;
       transforms->input_images = new_img_vec;
-
+      //Yu: detect new points in cam0, and track from cam0 to cam1
+      //Yu: check out why this step has the most reject points
       addPoints();
       // hm: here uses CAMERA MODEL!
+      // Yu: because addpoints uses optical flow to track
+      // so here we need to check if the tracked points valid the epipolar constraint
       filterPoints();
 
       //draw matching points
@@ -248,8 +256,7 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
                    const Eigen::aligned_map<KeypointId, Eigen::AffineCompact2f>&
                        transform_map_1,
                    Eigen::aligned_map<KeypointId, Eigen::AffineCompact2f>&
-                       transform_map_2) const {
-    // std::cout<<"call trackpoints"<<std::endl;
+                       transform_map_2, bool leftToRight = false) const {
     size_t num_points = transform_map_1.size();
 
     std::vector<KeypointId> ids;
@@ -264,13 +271,25 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
     }
 
     tbb::concurrent_unordered_map<KeypointId, Eigen::AffineCompact2f> result;
-
+    int cntValidTrack{0}, cntValidLnR{0};
+    
     auto compute_func = [&](const tbb::blocked_range<size_t>& range) {
+      /*yu: check which part is easy to fail in left to right tracking
+      Three steps to check:
+      1. trackPointAtLevel: Check one pyr level: if the residul = patch - data, is valid
+          valid means that 1.1 at least PATTERN_SIZE / 2 number of points that both valid in template and residuals patch
+                           1.2 the points transformed by the updated and optimized T can still be seen in the image 
+      2. trackPoint: check if the traking is valid at all pyr levels
+      3. This Func: square norm diff from "left to right transform" and "right to left transform" should be less than config.optical_flow_max_recovered_dist2
+      */
+      
       for (size_t r = range.begin(); r != range.end(); ++r) {
         const KeypointId id = ids[r];
 
         const Eigen::AffineCompact2f& transform_1 = init_vec[r];
         Eigen::AffineCompact2f transform_2 = transform_1;
+        // if(leftToRight)
+        //   transform_2 = *transform_1
 
         bool valid = trackPoint(pyr_1, pyr_2, transform_1, transform_2);
 
@@ -281,27 +300,46 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
           valid = trackPoint(pyr_2, pyr_1, transform_2, transform_1_recovered);
 
           if (valid) {
+            cntValidTrack++;
             Scalar dist2 = (transform_1.translation() -
                             transform_1_recovered.translation())
                                .squaredNorm();
-
+            // if(config.vio_debug){
+            //   std::stringstream ss;
+            //   if(dist2>500){
+            //     ss<<"dist2: "<<dist2<<std::endl;
+            //     ss<<"transform_1: "<<transform_1.translation()<<std::endl;
+            //     ss<<"transform_1_recovered: "<<transform_1_recovered.translation()<<std::endl;
+            //   }
+            //   std::cout<<ss.str()<<std::endl;
+            // }
             if (dist2 < config.optical_flow_max_recovered_dist2) {
+              cntValidLnR++;
               result[id] = transform_2;
             }
           }
         }
       }
+
     };
 
     tbb::blocked_range<size_t> range(0, num_points);
-
+    
     tbb::parallel_for(range, compute_func);
     // compute_func(range);
+    //Yu: try to track the low left to right track ratio reason
+    if(config.vio_debug){
+        std::cout<<num_points<<" total features from cam0 to track. "
+        <<" step1 valid: "<< "to do"
+        <<" step2 valid: "<< float(cntValidTrack)/num_points
+        <<" step3 valid: "<< float(cntValidLnR)/cntValidTrack<<std::endl;
+        
+      }
 
     transform_map_2.clear();
     transform_map_2.insert(result.begin(), result.end());
   }
-
+// Yu: track all layers (subfunction)
   inline bool trackPoint(const basalt::ManagedImagePyr<uint16_t>& old_pyr,
                          const basalt::ManagedImagePyr<uint16_t>& pyr,
                          const Eigen::AffineCompact2f& old_transform,
@@ -344,8 +382,9 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
       transformed_pat.colwise() += transform.translation(); // hm: R * (x;y) + t
 
       // hm: res = patch - data
+      // Yu: res = patch/average - data(which is also intensity/average for each pixel)
       bool valid = dp.residual(img_2, transformed_pat, res);
-
+      /// Yu: here valid means half of the pixel are within bound (the bound is wxh rectangular) in both image and template patchs 
       if (valid) {
         // hm: SE2 representation, 2 elements for translation, 1 for rotation
         // hm: http://fourier.eng.hmc.edu/e176/lectures/NM/node36.html
@@ -393,18 +432,20 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
       last_keypoint_id++;
     }
 
-    if(config.vio_debug){
-      std::cout<<"cam0 detected points: "<< transforms->observations.at(0).size()<<std::endl;
-    }
-
     if (calib.intrinsics.size() > 1) {
-      trackPoints(pyramid->at(0), pyramid->at(1), new_poses0, new_poses1);
+      if(config.vio_debug){
+          std::cout<<"track from left frame to right"<<std::endl;
+        }
+      // Yu: apply cameara calibration here!!!!
+      trackPoints(pyramid->at(0), pyramid->at(1), new_poses0, new_poses1, true);
 
       for (const auto& kv : new_poses1) {
         transforms->observations.at(1).emplace(kv);
       }
       if(config.vio_debug){
-        std::cout<<"cam1 tracked points from cam0: "<< transforms->observations.at(1).size()<<std::endl;
+        std::cout<<"cam0 newly detected points: "<< transforms->observations.at(0).size()
+        <<" cam1 tracked points from cam0: "<<transforms->observations.at(1).size()<<" track ratio: "
+        << float(transforms->observations.at(1).size())/transforms->observations.at(0).size()<<std::endl;
       }
     }
   }
@@ -456,6 +497,9 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
     for (int id : lm_to_remove) {
       transforms->observations.at(1).erase(id);
     }
+
+    std::cout<<"remove " <<lm_to_remove.size() <<" points valid epipolar constrain, remove ratio: "
+        << float(lm_to_remove.size() )/transforms->observations.at(1).size()<<std::endl;
   }
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW

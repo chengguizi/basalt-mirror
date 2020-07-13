@@ -100,6 +100,7 @@ struct OpticalFlowPatch {
     Scalar mean_inv = num_valid_points / sum;
     
     // hm: NOTE that the SE2 here applies to the template (data), not the wrapped image
+    // Yu: SE2: http://www.ethaneade.org/lie.pdf
     Eigen::Matrix<Scalar, 2, 3> Jw_se2; // hm: each column, x, y, theta. x points right, y points down
     Jw_se2.template topLeftCorner<2, 2>().setIdentity();
 
@@ -110,7 +111,8 @@ struct OpticalFlowPatch {
         const Scalar data_i = data[i];
         const Vector2 grad_i = grad.row(i);
         // hm: grad_i is the current pixel's gradient
-        // hm: effectively = grad_i / averaged_intensity -  averaged_grad * grad_i / averaged_intensity
+        // hm: effectively = grad_i / averaged_intensity -  averaged_grad * data_i / averaged_intensity
+        ///Yu: 
         grad.row(i) =
             num_valid_points * (grad_i * sum - grad_sum * data_i) / (sum * sum);
 
@@ -121,6 +123,7 @@ struct OpticalFlowPatch {
 
       // Fill jacobians with respect to SE2 warp
       // hm: the image is store in a row-major fashion, starting from the top-left corner. x correspon
+      /// Yu: SE2 param [x,y,theta]
       Jw_se2(0, 2) = -pattern2(1, i); // hm: change of x, respect to rotation. Apply small angle differentiation, give dx/dtheta = -y
       Jw_se2(1, 2) = pattern2(0, i); // hm: change of y, respect to rotation. Similarly dy/dtheta = x
       // hm: J_se2 = di/dw * dw/dse2 = grad * Jw_se2
@@ -147,7 +150,7 @@ struct OpticalFlowPatch {
 
     for (int i = 0; i < PATTERN_SIZE; i++) {
       if (img.InBounds(transformed_pattern.col(i), 2)) {
-        residual[i] = img.interp<Scalar>(transformed_pattern.col(i));
+        residual[i] = img.interp<Scalar>(transformed_pattern.col(i)); // Yu: bilinear interplatation
         sum += residual[i];
         num_valid_points++;
       } else {
@@ -174,6 +177,7 @@ struct OpticalFlowPatch {
   }
 
   Vector2 pos;
+  // Yu: data is template patch 
   VectorP data;  // negative if the point is not valid
 
   // MatrixP3 J_se2;  // total jacobian with respect to se2 warp
