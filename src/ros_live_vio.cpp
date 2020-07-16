@@ -316,7 +316,7 @@ int main(int argc, char** argv) {
             .SetBounds(0.4, 1.0, 0.4, 1.0)
             .SetHandler(new pangolin::Handler3D(camera));
 
-    while (!pangolin::ShouldQuit()) {
+    while (ros::ok()) {
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
       if (follow) {
@@ -367,6 +367,10 @@ int main(int argc, char** argv) {
   }
 
   terminate = true;
+  std::cout<<"terminate!!!"<<std::endl;
+
+  if (stereo_sub.image_data_queue) stereo_sub.image_data_queue->push(nullptr);
+  if (imu_data_queue) imu_data_queue->push(nullptr);
 
   if (t3.get()) t3->join();
   t4.join();
