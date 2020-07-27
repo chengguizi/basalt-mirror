@@ -68,8 +68,11 @@ else()
 endif()
 
 if( NOT CMAKE_BUILD_TYPE )
-  set( CMAKE_BUILD_TYPE Release)
+  # set( CMAKE_BUILD_TYPE Release)
+  set( CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
+
+message("${CMAKE_BUILD_TYPE}")
 
 if(NOT CXX_MARCH)
   set(CXX_MARCH native)
