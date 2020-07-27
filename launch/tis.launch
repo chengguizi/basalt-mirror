@@ -12,13 +12,16 @@
     
     <param name="calib_file" type = "string" value="$(find basalt)/data/tis_calib.json"/> 
     <param name="config_path" type = "string" value="$(find basalt)/data/tis_config.json"/> 
-    <param name="marg_data_path" type = "string" value="/home/yu/.ros/basalt/marg"/> 
+    <!-- <param name="marg_data_path" type = "string" value="/home/huimin/.ros/basalt/marg"/>  -->
     <param name= "show_gui" value="true"/>
     <param name= "print_queue" value="false"/>
     <param name= "terminate" value="false"/>
 </node>
 
-<node pkg="rosbag" type="play" name="player" args="-r 1 --pause --clock /home/yu/Documents/data/tis/tis_outdoor_2020-04-01-11-00-58.bag"/>
+<!--
+<node pkg="rosbag" type="play" name="player" args="-r 0.1 -pause -clock /home/huimin/ros_recordings/2020-06-25-20-58-04-expo-upper-20ms-gain-upper-20db.bag"/>
+-->
+
 
 <!-- 
     <node  pkg="tiscamera_ros" name="tiscamera_ros" type="tiscamera_ros" >

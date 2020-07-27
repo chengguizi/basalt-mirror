@@ -69,7 +69,7 @@
         "calib_gyro_bias": [
             0.0,
             0.0,
-            0.0,
+            -0.01,
             0.0,
             0.0,
             0.0,
@@ -82,7 +82,7 @@
         ],
         "imu_update_rate": 100.0,
         "accel_noise_std": [0.016, 0.016, 0.016],
-        "gyro_noise_std": [0.000282, 0.000282, 0.000282],
+        "gyro_noise_std": [0.0001, 0.0001, 0.0001],
         "accel_bias_std": [0.001, 0.001, 0.001],
         "gyro_bias_std": [0.0001, 0.0001, 0.0001],
         "cam_time_offset_ns": 0

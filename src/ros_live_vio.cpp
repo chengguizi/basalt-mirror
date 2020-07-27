@@ -109,7 +109,7 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& imu_msg){
   if (imu_data_queue) {
     if(imu_data_queue->try_push(data)){
       if(vio_config.vio_debug)
-        std::cout<< "imu data size is "<< imu_data_queue->size()<<std::endl;
+        std::cout<< "got imu msg at time "<< imu_msg->header.stamp <<std::endl;
     }
     else{
       std::cout<<"imu data buffer is full: "<<imu_data_queue->size()<<std::endl;
@@ -151,7 +151,7 @@ int main(int argc, char** argv) {
   stereoParam.right_info_topic = "/zed/right/camera_info_raw";
   StereoProcessor stereo_sub(vio_config, stereoParam);
   last_img_data = stereo_sub.last_img_data;
-  ros::Subscriber Imusub = nh.subscribe("/mavros/imu/data/sys_id_9", 10, imuCallback);
+  ros::Subscriber Imusub = nh.subscribe("/mavros/imu/data/sys_id_9", 200, imuCallback); // 2 seconds of buffering
   ros::AsyncSpinner spinner(4);
   spinner.start();
 
