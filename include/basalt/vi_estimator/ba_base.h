@@ -50,6 +50,8 @@ class BundleAdjustmentBase {
   };
 
   struct FrameRelLinData {
+    // hm: H has four components?
+    // hm: H and b respect to pose changes
     Sophus::Matrix6d Hpp;
     Sophus::Vector6d bp;
 
@@ -73,6 +75,7 @@ class BundleAdjustmentBase {
       Hpppl.reserve(num_rel_poses);
       order.reserve(num_rel_poses);
 
+      // hm: derivative of the relative pose respect to host and target frames
       d_rel_d_h.reserve(num_rel_poses);
       d_rel_d_t.reserve(num_rel_poses);
 
@@ -88,11 +91,13 @@ class BundleAdjustmentBase {
       }
     }
 
+    // hm: respect to keypoints
     Eigen::aligned_unordered_map<int, Eigen::Matrix3d> Hll;
     Eigen::aligned_unordered_map<int, Eigen::Vector3d> bl;
     Eigen::aligned_unordered_map<int, std::vector<std::pair<size_t, size_t>>>
         lm_to_obs;
 
+    // hm: respect to frame poses (and also the anti-diagonal term)
     Eigen::aligned_vector<FrameRelLinData> Hpppl;
 
     double error;
@@ -117,6 +122,11 @@ class BundleAdjustmentBase {
 
   void filterOutliers(double outlier_threshold, int min_num_obs);
 
+// hm: kpt_obs is the observation in the pixel coordinates
+// hm: kpt_pos is the keypoint defined as direction and inverse distance. It is immediately un-projected as the 3d point p_h_3d, in the reference frame (.kf_id)
+// hm: T_t_h describe the transformation between the two camera frames of interest
+// hm: T_t_h * p_h_3d ==> p_t_3d gives the 3d coordinates in the target camera frame
+// hm: after this, res residual is calculated for the error between the projected p_t_3d, and the kpt_obs observation
   template <class CamT>
   static bool linearizePoint(
       const KeypointObservation& kpt_obs, const KeypointPosition& kpt_pos,
@@ -125,11 +135,16 @@ class BundleAdjustmentBase {
       Eigen::Matrix<double, 2, 3>* d_res_d_p = nullptr,
       Eigen::Vector4d* proj = nullptr) {
     // Todo implement without jacobians
+
+    // hm: convert the direction stored back to 3d vector, inverse distance given in the keypoint struct
+    // hm: the first 3 element is a unit vector, hence the 4th element p_h_3d[3] should be the inverse distance indeed
+    // hm: this makes a valid homogeneous coordinate
     Eigen::Matrix<double, 4, 2> Jup;
     Eigen::Vector4d p_h_3d;
     p_h_3d = StereographicParam<double>::unproject(kpt_pos.dir, &Jup);
     p_h_3d[3] = kpt_pos.id;
 
+    // hm: p_t_3d change of coordinates from the reference frame to the camera frame interested
     Eigen::Vector4d p_t_3d = T_t_h * p_h_3d;
 
     Eigen::Matrix<double, 4, POSE_SIZE> d_point_d_xi;
@@ -155,6 +170,8 @@ class BundleAdjustmentBase {
       return false;
     }
 
+    // hm: projection is the landmark's projection on the observing frame
+    // hm: the third element (*proj)[2] should give the inverse distance
     if (proj) {
       proj->head<2>() = res;
       (*proj)[2] = p_t_3d[3] / p_t_3d.head<3>().norm();
@@ -168,9 +185,11 @@ class BundleAdjustmentBase {
     if (d_res_d_p) {
       Eigen::Matrix<double, 4, 3> Jpp;
       Jpp.setZero();
+      // hm: partical respect to points, hence T_t_h is constant here
       Jpp.block<3, 2>(0, 0) = T_t_h.topLeftCorner<3, 4>() * Jup;
       Jpp.col(2) = T_t_h.col(3);
 
+      // hm: dim 2x3, uv respect to u,v.id
       *d_res_d_p = Jp * Jpp;
     }
 
@@ -417,6 +436,7 @@ class BundleAdjustmentBase {
     return PoseStateWithLin(it2->second);
   }
 
+  // hm: this is the full state, added with each measure() call, with valid IMU readings 
   Eigen::aligned_map<int64_t, PoseVelBiasStateWithLin> frame_states;
   Eigen::aligned_map<int64_t, PoseStateWithLin> frame_poses;
 

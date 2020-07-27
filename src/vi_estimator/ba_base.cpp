@@ -226,6 +226,7 @@ void BundleAdjustmentBase::computeError(
   }
 }
 
+// hm: function to generate rld_vec
 void BundleAdjustmentBase::linearizeHelper(
     Eigen::aligned_vector<RelLinData>& rld_vec,
     const Eigen::aligned_map<
@@ -238,27 +239,37 @@ void BundleAdjustmentBase::linearizeHelper(
   rld_vec.clear();
 
   std::vector<TimeCamId> obs_tcid_vec;
+  // hm: iterate through all camera frames
   for (const auto& kv : obs_to_lin) {
     obs_tcid_vec.emplace_back(kv.first);
+    // hm: does this assume all landmarks are observed in all observing frames?
+    // hm: constructor initialise the Hll & bl matrix with number of landmarks; Hpppl, d_rel_d_h, d_rel_d_t with number of landmark observations of current frame
     rld_vec.emplace_back(lmdb.numLandmarks(), kv.second.size());
+    // hm: observation: some landmarks would not be observed in that camera frame, hence Hll and bl should be zero?
   }
 
+  // hm: concurrently process all camera frames
   tbb::parallel_for(
       tbb::blocked_range<size_t>(0, obs_tcid_vec.size()),
       [&](const tbb::blocked_range<size_t>& range) {
         for (size_t r = range.begin(); r != range.end(); ++r) {
+          // hm: parallelisation, select one host frame to work on
           auto kv = obs_to_lin.find(obs_tcid_vec[r]);
 
           RelLinData& rld = rld_vec[r];
 
           rld.error = 0;
 
+          // hm: host frame id of the vector of landmarks
           const TimeCamId& tcid_h = kv->first;
 
+          // hm: iterate through all landmark observations belong to that host frame tcid_h (this should include the host frame observation itself)
           for (const auto& obs_kv : kv->second) {
+            // hm: the observing frame
             const TimeCamId& tcid_t = obs_kv.first;
             if (tcid_h != tcid_t) {
               // target and host are not the same
+              // hm: residual depends on both the poses and points
               rld.order.emplace_back(std::make_pair(tcid_h, tcid_t));
 
               PoseStateWithLin state_h = getPoseStateWithLin(tcid_h.frame_id);
@@ -282,6 +293,7 @@ void BundleAdjustmentBase::linearizeHelper(
 
               Eigen::Matrix4d T_t_h = T_t_h_sophus.matrix();
 
+              // hm: store H and b parts respect to pose and observations
               FrameRelLinData frld;
 
               std::visit(
@@ -291,14 +303,18 @@ void BundleAdjustmentBase::linearizeHelper(
                       const KeypointPosition& kpt_pos =
                           lmdb.getLandmark(kpt_obs.kpt_id);
 
+                      // hm: given the current observation positions, and current estimate of T_t_h, and the camera model, we could get:
                       Eigen::Vector2d res;
+                      // hm: partial derivative with respect to pose state
                       Eigen::Matrix<double, 2, POSE_SIZE> d_res_d_xi;
+                      // hm: partial derivative with respect to point change
                       Eigen::Matrix<double, 2, 3> d_res_d_p;
 
                       bool valid = linearizePoint(kpt_obs, kpt_pos, T_t_h, cam,
                                                   res, &d_res_d_xi, &d_res_d_p);
 
                       if (valid) {
+                        // hm: ensure the outlier of landmark observation residual is not too disruptive
                         double e = res.norm();
                         double huber_weight =
                             e < huber_thresh ? 1.0 : huber_thresh / e;
@@ -308,11 +324,13 @@ void BundleAdjustmentBase::linearizeHelper(
                         rld.error += (2 - huber_weight) * obs_weight *
                                      res.transpose() * res;
 
+                        // hm: rld is a local variable here, so no data race
                         if (rld.Hll.count(kpt_obs.kpt_id) == 0) {
                           rld.Hll[kpt_obs.kpt_id].setZero();
                           rld.bl[kpt_obs.kpt_id].setZero();
                         }
 
+                        // hm: since the loss function is formulated as least squares, the Hessian is done as Jt*J
                         rld.Hll[kpt_obs.kpt_id] +=
                             obs_weight * d_res_d_p.transpose() * d_res_d_p;
                         rld.bl[kpt_obs.kpt_id] +=
@@ -323,8 +341,10 @@ void BundleAdjustmentBase::linearizeHelper(
                         frld.bp += obs_weight * d_res_d_xi.transpose() * res;
                         frld.Hpl.emplace_back(
                             obs_weight * d_res_d_xi.transpose() * d_res_d_p);
+                        // hm: the landmark being observed
                         frld.lm_id.emplace_back(kpt_obs.kpt_id);
 
+                        // hm: update the index pointers, for a landmark, to its different observations
                         rld.lm_to_obs[kpt_obs.kpt_id].emplace_back(
                             rld.Hpppl.size(), frld.lm_id.size() - 1);
                       }
@@ -394,12 +414,16 @@ void BundleAdjustmentBase::linearizeRel(const RelLinData& rld,
   H.setZero(POSE_SIZE * msize, POSE_SIZE * msize);
   b.setZero(POSE_SIZE * msize);
 
+  // hm: iterate through each relative frame
   for (size_t i = 0; i < rld.order.size(); i++) {
+    // hm: frld contains H and b respect to RELATIVE frame pose
     const FrameRelLinData& frld = rld.Hpppl.at(i);
 
+    // hm: respect to relative pose
     H.block<POSE_SIZE, POSE_SIZE>(POSE_SIZE * i, POSE_SIZE * i) += frld.Hpp;
     b.segment<POSE_SIZE>(POSE_SIZE * i) += frld.bp;
 
+    // hm: respect to landmark observations
     for (size_t j = 0; j < frld.lm_id.size(); j++) {
       Eigen::Matrix<double, POSE_SIZE, 3> H_pl_H_ll_inv;
       int lm_id = frld.lm_id[j];
@@ -431,6 +455,7 @@ void BundleAdjustmentBase::get_current_points(
   for (const auto& tcid_host : lmdb.getHostKfs()) {
     Sophus::SE3d T_w_i;
 
+    // hm: obtain the pose for that keyframe
     int64_t id = tcid_host.frame_id;
     if (frame_states.count(id) > 0) {
       PoseVelBiasStateWithLin state = frame_states.at(id);
@@ -444,9 +469,12 @@ void BundleAdjustmentBase::get_current_points(
       std::abort();
     }
 
+    // hm: convert to pose of the camera
     const Sophus::SE3d& T_i_c = calib.T_i_c[tcid_host.cam_id];
     Eigen::Matrix4d T_w_c = (T_w_i * T_i_c).matrix();
 
+    // hm: iterate through all landmarks for that camera frame
+    // hm: then convert all landmarks back to world frame coordinates
     for (const KeypointPosition& kpt_pos :
          lmdb.getLandmarksForHost(tcid_host)) {
       Eigen::Vector4d pt_cam =
@@ -467,30 +495,31 @@ void BundleAdjustmentBase::filterOutliers(double outlier_threshold,
   std::map<int, std::vector<std::pair<TimeCamId, double>>> outliers;
   computeError(error, &outliers, outlier_threshold);
 
-  //  std::cout << "============================================" <<
-  //  std::endl; std::cout << "Num landmarks: " << lmdb.numLandmarks() << "
-  //  with outliners
-  //  "
-  //            << outliers.size() << std::endl;
+   std::cout << "============================================" <<
+   std::endl; std::cout << "Num landmarks: " << lmdb.numLandmarks() << "with outliners"
+             << outliers.size() << std::endl;
 
+  // hm: iterate through all cameras
   for (const auto& kv : outliers) {
     int num_obs = lmdb.numObservations(kv.first);
     int num_outliers = kv.second.size();
 
     bool remove = false;
 
+    // remove those points that have observation points that are too few
     if (num_obs - num_outliers < min_num_obs) remove = true;
 
-    //    std::cout << "\tlm_id: " << kv.first << " num_obs: " << num_obs
-    //              << " outliers: " << num_outliers << " [";
+       std::cout << "\tlm_id: " << kv.first << " num_obs: " << num_obs
+                 << " outliers: " << num_outliers << " [";
 
     for (const auto& kv2 : kv.second) {
+      // hm: remove landmarks that are have host projections going off
       if (kv2.second == -2) remove = true;
 
-      //      std::cout << kv2.second << ", ";
+           std::cout << kv2.second << ", ";
     }
 
-    //    std::cout << "] " << std::endl;
+       std::cout << "] " << std::endl;
 
     if (remove) {
       lmdb.removeLandmark(kv.first);
@@ -501,8 +530,8 @@ void BundleAdjustmentBase::filterOutliers(double outlier_threshold,
     }
   }
 
-  // std::cout << "============================================" <<
-  // std::endl;
+  std::cout << "============================================" <<
+  std::endl;
 }
 
 void BundleAdjustmentBase::marginalizeHelper(Eigen::MatrixXd& abs_H,

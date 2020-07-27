@@ -394,6 +394,8 @@ void draw_image_overlay(pangolin::View& v, size_t cam_id) {
       if (!points.empty()) {
         double min_id = points[0][2], max_id = points[0][2];
 
+        // hm: for each point, first 2 number is the coordinate, 3rd number is the inverse distance
+        // hm: the last number not used?
         for (const auto& points2 : curr_vis_data->projections)
           for (const auto& p : points2) {
             min_id = std::min(min_id, p[2]);

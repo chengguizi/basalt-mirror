@@ -63,6 +63,7 @@ struct KeypointPosition {
 
 struct KeypointObservation {
   int kpt_id;
+  // hm: position in the image coordinates
   Eigen::Vector2d pos;
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -118,12 +119,15 @@ class LandmarkDatabase {
   }
 
  private:
+  // hm: store the keypoint location KeypointObservation (KEYFRAME id and image coordinates), indexed by the landmark id (which IS the keyframe id)
+  // hm: the first TimeCamId is indexing the landmarks by its belonging keyframe, the second TimeCamId is the observing frame
   Eigen::aligned_unordered_map<int, KeypointPosition> kpts;
   Eigen::aligned_map<
       TimeCamId,
       Eigen::aligned_map<TimeCamId, Eigen::aligned_vector<KeypointObservation>>>
       obs;
 
+  // hm: indexed by keyframe id, to find its host landmark id (which is equivalent to the keypoint id)
   std::unordered_map<TimeCamId, std::set<int>> host_to_kpts;
 
   int num_observations = 0;

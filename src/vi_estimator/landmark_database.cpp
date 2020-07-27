@@ -124,6 +124,9 @@ void LandmarkDatabase::addObservation(const TimeCamId &tcid_target,
   auto it = kpts.find(o.kpt_id);
   BASALT_ASSERT(it != kpts.end());
 
+  // hm: a vector of all observation belongs to a camera pose (tcid_target), related to a given key frame (kf_id)
+  // hm: it->second.kf_id is which keyframe that landmark belongs, and tcid_target is where the observation is made
+  // hm: o itself stores the keypoint / landmark id it tracks
   auto &obs_vec = obs[it->second.kf_id][tcid_target];
 
   // Check that the point observation is inserted only once
@@ -145,6 +148,7 @@ const KeypointPosition &LandmarkDatabase::getLandmark(int lm_id) const {
   return kpts.at(lm_id);
 }
 
+// hm: lmdb.getObservations() are organised by camera frame to which the landmarks themselves belong
 const Eigen::aligned_map<
     TimeCamId,
     Eigen::aligned_map<TimeCamId, Eigen::aligned_vector<KeypointObservation> > >
