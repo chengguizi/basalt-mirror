@@ -24,7 +24,7 @@
         "config.vio_use_lm": true,
         "config.vio_lm_lambda_min": 1e-32,
         "config.vio_lm_lambda_max": 1e2,
-        "config.vio_init_pose_weight": 1e8,
+        "config.vio_init_pose_weight": 1e12,
         "config.vio_init_ba_weight": 1e1,
         "config.vio_init_bg_weight": 1e2,
 
