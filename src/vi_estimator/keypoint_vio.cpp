@@ -67,6 +67,7 @@ KeypointVioEstimator::KeypointVioEstimator(
   marg_b.setZero(POSE_VEL_BIAS_SIZE);
 
   // prior on position
+  // hm: this is used to fix the initial position close to the origin?
   marg_H.diagonal().head<3>().setConstant(config.vio_init_pose_weight);
   // prior on yaw
   marg_H(5, 5) = config.vio_init_pose_weight;
@@ -594,9 +595,10 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
     // hm: obtain landmarks' 3d points in world frame
     get_current_points(data->points, data->point_ids);
 
+    // hm: resize to the number of cameras
     data->projections.resize(opt_flow_meas->observations.size());
 
-    // hm: projections are split into cameras, for each camera, it is a vector of coordinates (3rd number is inverse distance)
+    // hm: projections are split into cameras, for each camera, it is a vector of coordinates (4th number is LANDMARK ID)
     // hm: NOTE, only landmarks in the database are projected
     computeProjections(data->projections);
 
@@ -1266,8 +1268,8 @@ void KeypointVioEstimator::computeProjections(
 
                 linearizePoint(kpt_obs, kpt_pos, T_t_h, cam, res, nullptr,
                                nullptr, &proj);
-                // hm: adding in the inverse distance at the forth element. why?
-                // hm: the forth one is not observed inverse distance, it is the inverse distance TO THE KEYPOINT HOST FRAME
+                // hm: the third one in proj[] is inverse distance
+                // hm: the forth one in proj[] is the KEYPOINT ID
                 proj[3] = kpt_obs.kpt_id;
                 data[tcid_t.cam_id].emplace_back(proj);
               }

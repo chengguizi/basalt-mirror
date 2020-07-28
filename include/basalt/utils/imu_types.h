@@ -251,6 +251,7 @@ struct PoseStateWithLin {
 };
 
 struct AbsOrderMap {
+  // hm: indexed by timestamp, pair is <offset, length>
   std::map<int64_t, std::pair<int, int>> abs_order_map;
   size_t items = 0;
   size_t total_size = 0;
