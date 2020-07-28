@@ -135,7 +135,7 @@ int main(int argc, char** argv) {
   local_nh.param("print_queue", print_queue, false);
   local_nh.param("terminate", terminate, false);
   local_nh.param("use_imu", use_imu, true);
-  local_nh.param<std::string>("marg_data_path", marg_data_path, "/marg_data_path");
+  local_nh.param<std::string>("marg_data_path", marg_data_path, "");
 
   if (!config_path.empty()) {
     vio_config.load(config_path);
