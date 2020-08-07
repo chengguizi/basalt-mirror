@@ -62,6 +62,7 @@ struct KeypointPosition {
 };
 
 struct KeypointObservation {
+  // hm: this is the keypoint ID
   int kpt_id;
   // hm: position in the image coordinates
   Eigen::Vector2d pos;

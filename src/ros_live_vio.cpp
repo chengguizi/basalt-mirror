@@ -135,7 +135,7 @@ int main(int argc, char** argv) {
   local_nh.param("print_queue", print_queue, false);
   local_nh.param("terminate", terminate, false);
   local_nh.param("use_imu", use_imu, true);
-  local_nh.param<std::string>("marg_data_path", marg_data_path, "/marg_data_path");
+  local_nh.param<std::string>("marg_data_path", marg_data_path, "");
 
   if (!config_path.empty()) {
     vio_config.load(config_path);
@@ -390,6 +390,7 @@ void draw_image_overlay(pangolin::View& v, size_t cam_id) {
 
     if (curr_vis_data.get() && cam_id < curr_vis_data->projections.size()) {
       const auto& points = curr_vis_data->projections[cam_id];
+      const auto& optical_flow_obs = curr_vis_data->opt_flow_res->observations[cam_id];
 
       if (!points.empty()) {
         double min_id = points[0][2], max_id = points[0][2];
@@ -411,8 +412,18 @@ void draw_image_overlay(pangolin::View& v, size_t cam_id) {
 
           pangolin::glDrawCirclePerimeter(c[0], c[1], radius);
 
+          // hm: above plot the observation after optimisation, now we want to project the original observation too
+          const uint32_t kpt_id = int(c[3]);
+
+          auto vec = optical_flow_obs.at(kpt_id).translation().cast<double>();
+
+          pangolin::glDrawCircle(vec, 1.0);
+
+          pangolin::glDrawLine(c[0], c[1],vec[0], vec[1]);
+
+
           if (show_ids)
-            pangolin::GlFont::I().Text("%d", int(c[3])).Draw(c[0], c[1]);
+            pangolin::GlFont::I().Text("%u", kpt_id).Draw(c[0], c[1]);
         }
       }
 
