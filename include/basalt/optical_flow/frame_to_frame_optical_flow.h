@@ -293,6 +293,7 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
 
         bool valid = trackPoint(pyr_1, pyr_2, transform_1, transform_2);
 
+
         if (valid) {
           Eigen::AffineCompact2f transform_1_recovered = transform_2;
 
@@ -353,7 +354,6 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
       const Scalar scale = 1 << level;
 
       transform.translation() /= scale;
-
       PatchT p(old_pyr.lvl(level), old_transform.translation() / scale);
 
       // Perform tracking on current level
@@ -389,7 +389,7 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
         // hm: SE2 representation, 2 elements for translation, 1 for rotation
         // hm: http://fourier.eng.hmc.edu/e176/lectures/NM/node36.html
         Vector3 inc = dp.H_se2_inv_J_se2_T * res; // hm: H_se2_inv_J_se2_T conprises of the update needed to make I(x) of data bigger, which in turn makes residual smaller as r = y - f(x) = img - data
-        transform *= SE2::exp(-inc).matrix();
+        transform *= SE2::exp(-inc).matrix(); 
 
         const int filter_margin = 2;
 
@@ -421,7 +421,30 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
     Eigen::aligned_map<KeypointId, Eigen::AffineCompact2f> new_poses0,
         new_poses1;
 
+
+    //Yu: if the keypoint is out of valid boundry, then we need to drop it directly here.
+    //*********************************************************
+      Eigen::aligned_vector<Eigen::Vector2f> proj0;
+      Eigen::aligned_vector<Eigen::Vector4f> p3d0;
+      std::vector<bool> p3d0_success;
+      std::set<int> kp_to_remove;
+      for (size_t i = 0; i < kd.corners.size(); i++) {
+        proj0.emplace_back(kd.corners[i].cast<Scalar>());
+      }
+      calib.intrinsics[0].unproject(proj0, p3d0, p3d0_success); // hm: unproject all image domain points in cam0
+
+      for (size_t i = 0; i < p3d0_success.size(); i++) {
+        if (!p3d0_success[i]) kp_to_remove.emplace(i);
+      }
+      //*************************************************************
+
+    if(config.vio_debug){
+      std::cout<<"detected points: "<<kd.corners.size()<<std::endl;
+      std::cout<<"remain points(remove out-of-boundry ones): "<<kd.corners.size() - kp_to_remove.size()<<std::endl<<std::endl;
+    }
+
     for (size_t i = 0; i < kd.corners.size(); i++) {
+      if(kp_to_remove.count(i)) continue;
       Eigen::AffineCompact2f transform;
       transform.setIdentity();
       transform.translation() = kd.corners[i].cast<Scalar>();
@@ -454,6 +477,8 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
     if (calib.intrinsics.size() < 2) return;
 
     std::set<KeypointId> lm_to_remove;
+    std::set<KeypointId> lm_to_remove_left; //Yu remove feature in left image as well if valid the unproject creteria
+
 
     std::vector<KeypointId> kpid;
     Eigen::aligned_vector<Eigen::Vector2f> proj0, proj1;
@@ -490,12 +515,23 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
       }
     }
 
+    for (size_t i = 0; i < p3d0_success.size(); i++) {
+      if(!p3d0_success[i]) lm_to_remove_left.emplace(kpid[i]);
+    }
+
+
     if(config.vio_debug){
-      std::cout<<"kp: "<<kpid.size()<<", "<<"lm_to_remove: "<<lm_to_remove.size()<<std::endl;
+      std::cout<<"kp: "<<kpid.size()<<std::endl;
+      std::cout<<"lm_to_remove_left: "<<lm_to_remove_left.size()<<std::endl;
+      std::cout<<"lm_to_remove_right: "<<lm_to_remove.size()<<std::endl;
     }
 
     for (int id : lm_to_remove) {
       transforms->observations.at(1).erase(id);
+    }
+
+    for (int id : lm_to_remove_left) {
+      transforms->observations.at(0).erase(id);
     }
 
     std::cout<<"remove " <<lm_to_remove.size() <<" points valid epipolar constrain, remove ratio: "
