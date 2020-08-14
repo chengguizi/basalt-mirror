@@ -27,7 +27,7 @@ calib_template = Template('''{
             {
                 "px": $px0,
                 "py": $py0,
-                "pz": 0,
+                "pz": $pz0,
                 "qx": $qx0,
                 "qy": $qy0,
                 "qz": $qz0,
@@ -36,7 +36,7 @@ calib_template = Template('''{
             {
                 "px": $px1,
                 "py": $py1,
-                "pz": 0,
+                "pz": $pz1,
                 "qx": $qx1,
                 "qy": $qy1,
                 "qz": $qz1,
@@ -114,7 +114,7 @@ calib_template = Template('''{
 ''')
 
 # stream = open(args.yaml, 'r')
-stream = open("/media/nvidia/SD/catkin_ws/src/basalt-mirror/data/tis_23/camchain-imucam-.ddrone232020-08-05-16-54-55.yaml", 'r')
+stream = open("/media/nvidia/SD/catkin_ws/src/basalt-mirror/data/tis_23/camchain-imucam-2020-08-08-16-00-21.yaml", 'r')
 
 
 f = yaml.load(stream)
@@ -163,8 +163,8 @@ resolution_0 = f['cam0']['resolution']
 resolution_1 = f['cam1']['resolution']
 
 
-values = {'px0':  t_inv_0.item(0) , 'py0':  t_inv_0.item(1)  ,
-            'px1':  t_inv_1.item(0) , 'py1':  t_inv_1.item(1)  ,
+values = {'px0':  t_inv_0.item(0) , 'py0':  t_inv_0.item(1)  ,'pz0':  t_inv_0.item(2)  ,
+            'px1':  t_inv_1.item(0) , 'py1':  t_inv_1.item(1)  , 'pz1':  t_inv_1.item(2)  ,
             'qx0':  q_0[0] , 'qy0':  q_0[1] , 'qz0':  q_0[2] , 'qw0':  q_0[3] ,
             'qx1':  q_1[0] , 'qy1':  q_1[1] , 'qz1':  q_1[2] , 'qw1':  q_1[3] ,
             'fx0': intrinsics_0[2], 'fy0': intrinsics_0[3], 'cx0': intrinsics_0[4], 'cy0': intrinsics_0[5], 'xi0': intrinsics_0[0],'alpha0': intrinsics_0[1], 

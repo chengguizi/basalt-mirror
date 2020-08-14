@@ -22,7 +22,6 @@
     
     <param name="calib_file" type = "string" value="$(find basalt)/data/tis_calib.json"/> 
     <param name="config_path" type = "string" value="$(find basalt)/data/tis_config.json"/> 
-    <param name="marg_data_path" type = "string" value="/home/yu/.ros/basalt/marg"/> 
     <param name= "show_gui" value="true"/>
     <param name= "print_queue" value="false"/>
     <param name= "terminate" value="false"/>
