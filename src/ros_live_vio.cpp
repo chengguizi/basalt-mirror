@@ -364,7 +364,8 @@ int main(int argc, char** argv) {
 
       pangolin::FinishFrame();
     }
-  }
+  }else
+    ros::waitForShutdown();
 
   terminate = true;
   std::cout<<"terminate!!!"<<std::endl;

@@ -177,8 +177,8 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
         // T_w_i_init.setQuaternion(Eigen::Quaterniond::FromTwoVectors(
             // data->accel, Eigen::Vector3d::UnitZ()));
           Eigen::Matrix<double, 3, 3> M_w_i;  //Yu: rotation matrix from imu to world
-          M_w_i<< 0, -1, 0,
-                  1, 0, 0,
+          M_w_i<< 1, 0, 0,
+                  0, 1, 0,
                   0, 0, 1;
 
         Eigen::Quaterniond q_w_i(M_w_i);
@@ -974,6 +974,8 @@ void KeypointVioEstimator::optimize() {
     // hm: this is just to store all states (either full or marginalised) in order
     AbsOrderMap aom;
 
+    std::cout << "building AbsOrderMap" << std::endl;
+
     // hm: sequentially store all the frame_poses (key frames) in the aom
     for (const auto& kv : frame_poses) {
       aom.abs_order_map[kv.first] = std::make_pair(aom.total_size, POSE_SIZE);
@@ -1009,6 +1011,8 @@ void KeypointVioEstimator::optimize() {
     // hm: doing optimisation for vio_max_iterations times, unless converged
     // hm: Note: at vio_filter_iteration iteration, additional filterOutliers is done
     for (int iter = 0; iter < config.vio_max_iterations; iter++) {
+
+      std::cout << "optimisation iteration " <<  iter << std::endl;
       auto t1 = std::chrono::high_resolution_clock::now();
 
       // hm: sum of all error from all landmarks
@@ -1050,6 +1054,7 @@ void KeypointVioEstimator::optimize() {
       bool converged = false;
 
       if (config.vio_use_lm) {  // Use Levenberg–Marquardt
+        std::cout << "using lm" << std::endl;
         bool step = false;
         int max_iter = 10;
 
