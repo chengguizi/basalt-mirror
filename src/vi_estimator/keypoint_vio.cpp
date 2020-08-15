@@ -1271,8 +1271,10 @@ void KeypointVioEstimator::computeProjections(
                 Eigen::Vector2d res;
                 Eigen::Vector4d proj;
 
-                linearizePoint(kpt_obs, kpt_pos, T_t_h, cam, res, nullptr,
+                bool valid = linearizePoint(kpt_obs, kpt_pos, T_t_h, cam, res, nullptr,
                                nullptr, &proj);
+
+                if (!valid) continue;
                 // hm: the third one in proj[] is inverse distance
                 // hm: the forth one in proj[] is the KEYPOINT ID
                 proj[3] = kpt_obs.kpt_id;
@@ -1296,8 +1298,10 @@ void KeypointVioEstimator::computeProjections(
                 Eigen::Vector2d res;
                 Eigen::Vector4d proj;
 
-                linearizePoint(kpt_obs, kpt_pos, Eigen::Matrix4d::Identity(),
+                bool valid = linearizePoint(kpt_obs, kpt_pos, Eigen::Matrix4d::Identity(),
                                cam, res, nullptr, nullptr, &proj);
+
+                if (!valid) continue;
 
                 proj[3] = kpt_obs.kpt_id;
                 data[tcid_t.cam_id].emplace_back(proj);

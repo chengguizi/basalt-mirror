@@ -414,7 +414,15 @@ void draw_image_overlay(pangolin::View& v, size_t cam_id) {
           pangolin::glDrawCirclePerimeter(c[0], c[1], radius);
 
           // hm: above plot the observation after optimisation, now we want to project the original observation too
+          // hm: the fourth element of the visualisation data, shows the id keypoint
           const uint32_t kpt_id = int(c[3]);
+
+          if (show_ids)
+            pangolin::GlFont::I().Text("%u", kpt_id).Draw(c[0], c[1]);
+
+          // hm: in rare cases, if the landmark is no longer observed, skip
+          if(!optical_flow_obs.count(kpt_id))
+            continue;
 
           auto vec = optical_flow_obs.at(kpt_id).translation().cast<double>();
 
@@ -422,9 +430,6 @@ void draw_image_overlay(pangolin::View& v, size_t cam_id) {
 
           pangolin::glDrawLine(c[0], c[1],vec[0], vec[1]);
 
-
-          if (show_ids)
-            pangolin::GlFont::I().Text("%u", kpt_id).Draw(c[0], c[1]);
         }
       }
 
