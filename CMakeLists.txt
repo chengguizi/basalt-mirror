@@ -68,8 +68,8 @@ else()
 endif()
 
 if( NOT CMAKE_BUILD_TYPE )
-  # set( CMAKE_BUILD_TYPE Release)
-  set( CMAKE_BUILD_TYPE RelWithDebInfo)
+  set( CMAKE_BUILD_TYPE Release)
+  # set( CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
 message("${CMAKE_BUILD_TYPE}")
@@ -268,11 +268,11 @@ add_library(basalt SHARED
 target_link_libraries(basalt PUBLIC ${TBB_LIBRARIES} ${STD_CXX_FS} ${OpenCV_LIBS} ${catkin_LIBRARIES} PRIVATE  apriltag opengv rosbag)
 
 
-# add_executable(basalt_calibrate src/calibrate.cpp src/calibration/cam_calib.cpp)
-# target_link_libraries(basalt_calibrate basalt pangolin)
+add_executable(basalt_calibrate src/calibrate.cpp src/calibration/cam_calib.cpp)
+target_link_libraries(basalt_calibrate basalt pangolin)
 
-# add_executable(basalt_calibrate_imu src/calibrate_imu.cpp src/calibration/cam_imu_calib.cpp)
-# target_link_libraries(basalt_calibrate_imu basalt pangolin)
+add_executable(basalt_calibrate_imu src/calibrate_imu.cpp src/calibration/cam_imu_calib.cpp)
+target_link_libraries(basalt_calibrate_imu basalt pangolin)
 
 
 # add_executable(basalt_vio_sim src/vio_sim.cpp)
