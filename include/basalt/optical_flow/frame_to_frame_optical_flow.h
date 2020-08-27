@@ -388,7 +388,20 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
       if (valid) {
         // hm: SE2 representation, 2 elements for translation, 1 for rotation
         // hm: http://fourier.eng.hmc.edu/e176/lectures/NM/node36.html
+
+        // hm: PROBLEM: sometimes the 3rd element, rotation is not a number        
         Vector3 inc = dp.H_se2_inv_J_se2_T * res; // hm: H_se2_inv_J_se2_T conprises of the update needed to make I(x) of data bigger, which in turn makes residual smaller as r = y - f(x) = img - data
+        
+        if(res.hasNaN()){
+          std::cout << "THERE IS NAN IN THE RESULT" << std::endl;
+
+          std::cout << "transform :" << std::endl << transform.matrix() << std::endl;
+
+          std::cout << "res: " << res.transpose() << std::endl;
+
+          std::abort();
+        }
+
         transform *= SE2::exp(-inc).matrix(); 
 
         const int filter_margin = 2;

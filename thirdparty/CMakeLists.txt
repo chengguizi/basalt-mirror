@@ -46,6 +46,7 @@ set_target_properties(opengv PROPERTIES
 
 # fix opengv: compile options (CMAKE_CXX_FLAGS is overwritten by Opengv)
 target_compile_options(opengv PRIVATE
+  -Wno-sign-compare
   -Wno-unused-private-field
   -march=${CXX_MARCH}
   ${BASALT_PASSED_CXX_FLAGS})
