@@ -158,9 +158,15 @@ struct OpticalFlowPatch {
       }
     }
 
+    // hm: check for divide by zero
+    // hm: if the pactch is all black, then literally there is no information, throw it away
+    if (sum <= 0)
+      return false;
+
     int num_residuals = 0;
 
     for (int i = 0; i < PATTERN_SIZE; i++) {
+      // hm: pixels that are out of range are thrown away by residual == -1
       if (residual[i] >= 0 && data[i] >= 0) {
         const Scalar val = residual[i];
         // hm: sum / num_valid_points gives the averaged intensity of the patch
