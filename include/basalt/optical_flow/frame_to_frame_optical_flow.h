@@ -547,7 +547,8 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
       transforms->observations.at(0).erase(id);
     }
 
-    std::cout<<"remove " <<lm_to_remove.size() <<" points valid epipolar constrain, remove ratio: "
+    if (lm_to_remove.size())
+      std::cout<<"remove " <<lm_to_remove.size() <<" points valid epipolar constrain, remove ratio: "
         << float(lm_to_remove.size() )/transforms->observations.at(1).size()<<std::endl;
   }
 

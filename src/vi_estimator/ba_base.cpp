@@ -496,7 +496,7 @@ void BundleAdjustmentBase::filterOutliers(double outlier_threshold,
   computeError(error, &outliers, outlier_threshold);
 
    std::cout << "============================================" <<
-   std::endl; std::cout << "Num landmarks: " << lmdb.numLandmarks() << "with outliners"
+   std::endl; std::cout << "Num landmarks: " << lmdb.numLandmarks() << " with outliners"
              << outliers.size() << std::endl;
 
   // hm: iterate through all cameras

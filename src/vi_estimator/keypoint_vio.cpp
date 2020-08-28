@@ -428,7 +428,7 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
   // hm: check if keyframe is needed
   // hm: criteria 1: vio_new_kf_keypoints_thresh, the ratio between landmarked observations and the total observations
   // hm: criteria 2: vio_min_frames_after_kf, having minimum frames in between
-  if ( (lmdb.numLandmarks() < 20 || lmdb.numLandmarks() / unconnected_obs0.size() < 0.05 || double(connected0) / lmdb.numLandmarks() < config.vio_new_kf_keypoints_thresh)
+  if ( (lmdb.numLandmarks() < 20 || lmdb.numLandmarks() / unconnected_obs0.size() < 0.2 || double(connected0) / lmdb.numLandmarks() < config.vio_new_kf_keypoints_thresh)
         && (frames_after_kf > config.vio_min_frames_after_kf))
     take_kf = true;
 
@@ -575,8 +575,11 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
     out_state_queue->push(data);
 
     // hm: debug bias
-    std::cout << "bias_accel " << data->bias_accel.transpose() << std::endl;
-    std::cout << "bias_gyro " << data->bias_gyro.transpose() << std::endl;
+    if (config.vio_debug){
+      std::cout << "bias_accel " << data->bias_accel.transpose() << std::endl;
+      std::cout << "bias_gyro " << data->bias_gyro.transpose() << std::endl;
+    }
+    
   }
 
   if (out_vis_queue) {
@@ -974,7 +977,7 @@ void KeypointVioEstimator::optimize() {
     // hm: this is just to store all states (either full or marginalised) in order
     AbsOrderMap aom;
 
-    std::cout << "building AbsOrderMap" << std::endl;
+    // std::cout << "building AbsOrderMap" << std::endl;
 
     // hm: sequentially store all the frame_poses (key frames) in the aom
     for (const auto& kv : frame_poses) {
@@ -1011,8 +1014,8 @@ void KeypointVioEstimator::optimize() {
     // hm: doing optimisation for vio_max_iterations times, unless converged
     // hm: Note: at vio_filter_iteration iteration, additional filterOutliers is done
     for (int iter = 0; iter < config.vio_max_iterations; iter++) {
-
-      std::cout << "optimisation iteration " <<  iter << std::endl;
+      if (config.vio_debug)
+        std::cout << "optimisation iteration " <<  iter << std::endl;
       auto t1 = std::chrono::high_resolution_clock::now();
 
       // hm: sum of all error from all landmarks
@@ -1054,7 +1057,6 @@ void KeypointVioEstimator::optimize() {
       bool converged = false;
 
       if (config.vio_use_lm) {  // Use Levenberg–Marquardt
-        std::cout << "using lm" << std::endl;
         bool step = false;
         int max_iter = 10;
 

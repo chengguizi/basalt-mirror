@@ -393,8 +393,11 @@ void draw_image_overlay(pangolin::View& v, size_t cam_id) {
       const auto& points = curr_vis_data->projections[cam_id];
       const auto& optical_flow_obs = curr_vis_data->opt_flow_res->observations[cam_id];
 
+      double min_id = 1, max_id = 1;
+
       if (!points.empty()) {
-        double min_id = points[0][2], max_id = points[0][2];
+        min_id = points[0][2];
+        max_id = points[0][2];
 
         // hm: for each point, first 2 number is the coordinate, 3rd number is the inverse distance
         // hm: the last number not used?
@@ -404,11 +407,20 @@ void draw_image_overlay(pangolin::View& v, size_t cam_id) {
             max_id = std::max(max_id, p[2]);
           }
 
+        //hm: set the coloring to be constant
+        min_id = 0.002; // blue color
+        max_id = 1; // red color
+
         for (const auto& c : points) {
-          const float radius = 6.5;
+          const float radius = 6.5; 
 
           float r, g, b;
-          getcolor(c[2] - min_id, max_id - min_id, b, g, r);
+          double scale = c[2] - min_id;
+          if (scale < 0.0)
+            scale = 0;
+          else if (c[2] > max_id)
+            scale = max_id - min_id;
+          getcolor(scale , max_id - min_id, b, g, r);
           glColor3f(r, g, b);
 
           pangolin::glDrawCirclePerimeter(c[0], c[1], radius);
@@ -433,10 +445,10 @@ void draw_image_overlay(pangolin::View& v, size_t cam_id) {
         }
       }
 
-      glColor3f(1.0, 0.0, 0.0);
+      glColor3f(1.0, 0.8, 0.0);
       pangolin::GlFont::I()
-          .Text("Tracked %d points", points.size())
-          .Draw(5, 20);
+          .Text("Tracked %d points, mixd = %.2lf maxd = %.2lf", points.size(), 1/max_id, 1/min_id)
+          .Draw(5, 40);
     }
   }
 }

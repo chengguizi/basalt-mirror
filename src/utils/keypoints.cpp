@@ -224,11 +224,18 @@ void detectKeypoints(
 
         for (size_t i = 0; i < points.size() && points_added < num_points_cell;
              i++)
+        {
+          // hm: discriminate against bright spots, when threshold is low
+          const uchar pixel_val = subImg.at<uchar>(cv::Point(points[i].pt.x, points[i].pt.y));
+          if (threshold == 5 && (pixel_val / points[i].response) > 8 )
+            continue;
+
           if (img_raw.InBounds(x + points[i].pt.x, y + points[i].pt.y,
                                EDGE_THRESHOLD)) {
             kd.corners.emplace_back(x + points[i].pt.x, y + points[i].pt.y);
             points_added++;
           }
+        }
 
         threshold /= 2;
       }
