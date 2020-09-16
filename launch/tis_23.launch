@@ -3,15 +3,15 @@
 <!-- <arg name="system_id" default="6"/> -->
 
 <node pkg="basalt" type="basalt_vio_ros" name="basalt_vio_ros" output="screen">
-    <remap from="/mavros/imu/data/sys_id_9" to ="/mavros/imu/data"/>  
+    <remap from="/mavros/imu/data/sys_id_9" to ="/mavros/imu/data_raw"/>  
     <remap from="/zed/left/image_raw_color" to ="/tiscamera_ros/fisheye_left/image_rect_raw"/>  
     <remap from="/zed/right/image_raw_color" to ="/tiscamera_ros/fisheye_right/image_rect_raw"/>  
     <remap from="/zed/left/camera_info_raw" to ="/tiscamera_ros/fisheye_left/camera_info"/>  
     <remap from="/zed/right/camera_info_raw" to ="/tiscamera_ros/fisheye_right/camera_info"/>  
 
 
-    <param name="calib_file" type = "string" value="$(find basalt)/data/tis_23/tis_calib.json"/> 
-    <param name="config_path" type = "string" value="$(find basalt)/data/tis_23/tis_config.json"/> 
+    <param name="calib_file" type = "string" value="$(find basalt)/data/tis_23/tis_23.json"/> 
+    <param name="config_path" type = "string" value="$(find basalt)/data/tis_config.json"/> 
     <param name= "show_gui" value="true"/>
     <param name= "print_queue" value="false"/>
     <param name= "terminate" value="false"/>
