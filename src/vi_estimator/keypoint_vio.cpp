@@ -131,7 +131,11 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
 
     while (true) {
       if(config.vio_debug){std::cout<<"opt_flow queue size: "<<vision_data_queue.size()<<std::endl;}
+
+      // hm: blocking wait for the optical flow results
       vision_data_queue.pop(curr_frame);
+
+      // hm: logics to throw away non-latest frames
       int skipped_image = 0;
       if (config.vio_enforce_realtime) {
         // drop current frame if another frame is already in the queue.
@@ -139,6 +143,8 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
         if(skipped_image)
           std::cerr<< "[Warning] skipped opt flow size: "<<skipped_image<<std::endl;
       }
+
+      // hm: if end of the frame reached, quit looping
       if (!curr_frame.get()) {
         break;
       }
@@ -150,7 +156,7 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
 
       if(config.vio_debug) std::cout << "got frame data at time " << double(curr_frame->t_ns * 1.e-9) << std::endl;
       if (!initialized) {
-         // hm: ensure frame arrive after first data
+         // hm: ensure frame arrive after first IMU data
         if (curr_frame->t_ns < data->t_ns)
           continue;
 
@@ -230,7 +236,7 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
           data->accel = calib.calib_accel_bias.getCalibrated(data->accel);
           data->gyro = calib.calib_gyro_bias.getCalibrated(data->gyro);
           skipped_imu++;
-          if(config.vio_debug) std::cout << "popped imu data at time " << double(data->t_ns * 1.e-9) << std::endl;
+          // if(config.vio_debug) std::cout << "popped imu data at time " << double(data->t_ns * 1.e-9) << std::endl;
         }
 
         // hm: starting from the first imu reading AFTER previous frame time, integrated until the last imu reading before current frame
@@ -249,7 +255,7 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
 
           // hm: if the pipe ends with null pointer
           if (!data.get()) break;
-          if(config.vio_debug) std::cout << "popped imu data at time " << double(data->t_ns * 1.e-9) << std::endl;
+          // if(config.vio_debug) std::cout << "popped imu data at time " << double(data->t_ns * 1.e-9) << std::endl;
           // hm: obtain the correction scale and bias, and store it back to imu data
           data->accel = calib.calib_accel_bias.getCalibrated(data->accel);
           data->gyro = calib.calib_gyro_bias.getCalibrated(data->gyro);
@@ -527,11 +533,17 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
         Eigen::Vector4d p0_triangulated =
             triangulate(p0_3d.head<3>(), p1_3d.head<3>(), T_0_1);
 
-        // if(config.vio_debug){
-        //   std::cout<< "lm_id: " << lm_id << ", p0_triangulated: "<<p0_triangulated.transpose()<<std::endl;
-        // }
+        if(config.vio_debug){
+          if(tcidl.frame_id == tcido.frame_id){
+            std::cout << "same frame pairs" << std::endl;
+            std::cout << "p0_3d " << p0_3d.head<3>().transpose() << std::endl;
+            std::cout << "p1_3d " << p1_3d.head<3>().transpose() << std::endl;
+          }
+            
+          std::cout<< "initialise keyframe lm_id: " << lm_id << ", p0_triangulated: "<<p0_triangulated.transpose()<<std::endl;
+        }
 
-        // hm: distance criteria: the homogeneous part is reasonable
+        // hm: distance criteria: the inverse distance is resonable
         if (p0_triangulated.array().isFinite().all() &&
             p0_triangulated[3] > 0 && p0_triangulated[3] < 3.0) {
           // hm: defined in the landmark_database
@@ -703,6 +715,7 @@ void KeypointVioEstimator::marginalize(
           ids.push_back(id);
         }
 
+        // hm: always keep the last two key frames
         for (size_t i = 0; i < ids.size() - 2; i++) {
           // hm: num_points_connected: number of observations at this frame
           // hm: num_points_kf: as a key frame, how many observations are added
@@ -1211,6 +1224,7 @@ void KeypointVioEstimator::optimize() {
 
         if (after_error_total > error_total) {
           std::cout << "WARN: increased error after update!!!" << std::endl;
+          // std::abort();
         }
       }
 

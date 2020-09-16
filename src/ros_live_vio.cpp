@@ -108,12 +108,12 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& imu_msg){
           imu_msg->angular_velocity.z);
   if (imu_data_queue) {
     if(imu_data_queue->try_push(data)){
-      if(vio_config.vio_debug)
-        std::cout<< "got imu msg at time "<< imu_msg->header.stamp <<std::endl;
+      // if(vio_config.vio_debug)
+      //   std::cout<< "got imu msg at time "<< imu_msg->header.stamp <<std::endl;
     }
     else{
       std::cout<<"imu data buffer is full: "<<imu_data_queue->size()<<std::endl;
-      abort();
+      // abort();
     }
   }
 }
@@ -441,7 +441,7 @@ void draw_image_overlay(pangolin::View& v, size_t cam_id) {
           pangolin::glDrawCircle(vec, 1.0);
 
           pangolin::glDrawLine(c[0], c[1],vec[0], vec[1]);
-
+          
         }
       }
 

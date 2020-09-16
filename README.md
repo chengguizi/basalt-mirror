@@ -1,3 +1,14 @@
+## Dependencies
+```
+git submodule update --init --recursive
+```
+
+``` bash
+sudo apt install libv4l-dev
+sudo apt install libxkbcommon-dev
+sudo apt install wayland-protocols
+```
+
 [![pipeline status](https://gitlab.com/VladyslavUsenko/basalt/badges/master/pipeline.svg)](https://gitlab.com/VladyslavUsenko/basalt/commits/master)
 
 ## Basalt
