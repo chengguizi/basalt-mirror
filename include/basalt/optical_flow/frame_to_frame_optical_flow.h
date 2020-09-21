@@ -108,6 +108,14 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
     while (true) {
       input_queue.pop(input_ptr);
 
+      // hm: add logic for realtime requirement
+      if (config.vio_enforce_realtime){
+        int skipped_image = 0;
+        while (input_queue.try_pop(input_ptr)) {skipped_image++;}
+        if(skipped_image)
+          std::cerr<< "[Optical Flow Warning] skipped input image size: "<<skipped_image<<std::endl;
+      }
+
       if (!input_ptr.get()) {
         if (output_queue) output_queue->push(nullptr);
         break;

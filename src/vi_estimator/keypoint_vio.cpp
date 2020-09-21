@@ -270,7 +270,7 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
           }
 
           // hm: maximum 20ms of IMU time modification is allowed
-          BASALT_ASSERT(curr_frame->t_ns - (meas->get_start_t_ns() + meas->get_dt_ns()) < 20e6);
+          BASALT_ASSERT(curr_frame->t_ns - (meas->get_start_t_ns() + meas->get_dt_ns()) < 100e6);
 
           int64_t tmp = data->t_ns;
           data->t_ns = curr_frame->t_ns;
