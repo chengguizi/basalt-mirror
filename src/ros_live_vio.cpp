@@ -208,7 +208,8 @@ int main(int argc, char** argv) {
 
   std::thread t4([&]() {
     basalt::PoseVelBiasState::Ptr data;
-    ros::Publisher pose_pub = nh.advertise<geometry_msgs::PoseWithCovarianceStamped>("/basalt/pose", 10);
+    ros::Publisher pose_pub = nh.advertise<geometry_msgs::PoseWithCovarianceStamped>("/basalt/pose_nwu", 10);
+    ros::Publisher pose_map_pub = nh.advertise<geometry_msgs::PoseWithCovarianceStamped>("/basalt/pose_enu", 10);
     while (true) {
       out_state_queue.pop(data);
 
@@ -226,17 +227,47 @@ int main(int argc, char** argv) {
       vio_t_ns.emplace_back(data->t_ns);
       vio_t_w_i.emplace_back(T_w_i.translation());
 
-      geometry_msgs::PoseWithCovarianceStamped poseMsg;
-      poseMsg.header.stamp.nsec = t_ns;
-      poseMsg.header.frame_id = "basalt";
-      poseMsg.pose.pose.position.x =  T_w_i.translation()[0];
-      poseMsg.pose.pose.position.y =  T_w_i.translation()[1];
-      poseMsg.pose.pose.position.z =  T_w_i.translation()[2];
-      poseMsg.pose.pose.orientation.w = T_w_i.unit_quaternion().w();
-      poseMsg.pose.pose.orientation.x = T_w_i.unit_quaternion().x();
-      poseMsg.pose.pose.orientation.y = T_w_i.unit_quaternion().y();
-      poseMsg.pose.pose.orientation.z = T_w_i.unit_quaternion().z();
-      pose_pub.publish(poseMsg);
+      // the w_i here is referring to vision world (for now, it is the same as IMU frame, which is FLU / NWU )
+      // we want to follow ROS convention on the map coordinate, which is NEU
+
+      Sophus::SE3d T_m_w;
+      Sophus::Matrix3d R_m_w;
+      R_m_w <<  0,-1,0,
+                1,0,0,
+                0,0,1; 
+      T_m_w.setRotationMatrix(R_m_w);
+
+      Sophus::SE3d T_m_i = T_m_w * T_w_i;
+
+      {
+        geometry_msgs::PoseWithCovarianceStamped poseMsg;
+        poseMsg.header.stamp.nsec = t_ns;
+        poseMsg.header.frame_id = "basalt";
+        poseMsg.pose.pose.position.x =  T_w_i.translation()[0];
+        poseMsg.pose.pose.position.y =  T_w_i.translation()[1];
+        poseMsg.pose.pose.position.z =  T_w_i.translation()[2];
+        poseMsg.pose.pose.orientation.w = T_w_i.unit_quaternion().w();
+        poseMsg.pose.pose.orientation.x = T_w_i.unit_quaternion().x();
+        poseMsg.pose.pose.orientation.y = T_w_i.unit_quaternion().y();
+        poseMsg.pose.pose.orientation.z = T_w_i.unit_quaternion().z();
+        pose_pub.publish(poseMsg);
+      }
+
+      {
+        geometry_msgs::PoseWithCovarianceStamped poseMsg;
+        poseMsg.header.stamp.nsec = t_ns;
+        poseMsg.header.frame_id = "map";
+        poseMsg.pose.pose.position.x =  T_m_i.translation()[0];
+        poseMsg.pose.pose.position.y =  T_m_i.translation()[1];
+        poseMsg.pose.pose.position.z =  T_m_i.translation()[2];
+        poseMsg.pose.pose.orientation.w = T_m_i.unit_quaternion().w();
+        poseMsg.pose.pose.orientation.x = T_m_i.unit_quaternion().x();
+        poseMsg.pose.pose.orientation.y = T_m_i.unit_quaternion().y();
+        poseMsg.pose.pose.orientation.z = T_m_i.unit_quaternion().z();
+        pose_map_pub.publish(poseMsg);
+      }
+        
+      
 
       if (show_gui) {
         std::vector<float> vals;
