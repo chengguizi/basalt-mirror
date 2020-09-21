@@ -367,6 +367,7 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
     return patch_valid;
   }
 
+// hm: this function only check the points are in the rectangle of the image, not necessarily within the lens circular area
   inline bool trackPointAtLevel(const Image<const u_int16_t>& img_2,
                                 const PatchT& dp,
                                 Eigen::AffineCompact2f& transform) const {
@@ -404,9 +405,10 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
 
         transform *= SE2::exp(-inc).matrix(); 
 
-        const int filter_margin = 2;
+        // const int filter_margin = 2;
 
-        if (!img_2.InBounds(transform.translation(), filter_margin))
+        if (!calib.intrinsics[0].inBound(transform.translation()))
+        // if (!img_2.InBounds(transform.translation(), filter_margin))
           patch_valid = false;
       } else {
         patch_valid = false;
@@ -437,17 +439,10 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
 
     //Yu: if the keypoint is out of valid boundry, then we need to drop it directly here.
     //*********************************************************
-      Eigen::aligned_vector<Eigen::Vector2f> proj0;
-      Eigen::aligned_vector<Eigen::Vector4f> p3d0;
-      std::vector<bool> p3d0_success;
       std::set<int> kp_to_remove;
       for (size_t i = 0; i < kd.corners.size(); i++) {
-        proj0.emplace_back(kd.corners[i].cast<Scalar>());
-      }
-      calib.intrinsics[0].unproject(proj0, p3d0, p3d0_success); // hm: unproject all image domain points in cam0
-
-      for (size_t i = 0; i < p3d0_success.size(); i++) {
-        if (!p3d0_success[i]) kp_to_remove.emplace(i);
+        if (!calib.intrinsics[0].inBound(kd.corners[i].cast<Scalar>()))
+          kp_to_remove.emplace(i);
       }
       //*************************************************************
 
