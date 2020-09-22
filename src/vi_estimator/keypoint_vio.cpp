@@ -546,6 +546,14 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
         // hm: distance criteria: the inverse distance is resonable
         if (p0_triangulated.array().isFinite().all() &&
             p0_triangulated[3] > 0 && p0_triangulated[3] < 3.0) {
+          
+          // hm: if it is behind the camera throw away
+          if (p0_triangulated[2])
+          {
+            if (config.vio_debug)
+              std::cout << "point " << p0_triangulated.transpose() <<" is behind the camera, throw away" << std::endl;
+            continue;
+          }
           // hm: defined in the landmark_database
           KeypointPosition kpt_pos;
           kpt_pos.kf_id = tcidl;
