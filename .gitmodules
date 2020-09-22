@@ -18,4 +18,4 @@
 	url = https://github.com/ros/console_bridge.git
 [submodule "thirdparty/basalt-headers"]
 	path = thirdparty/basalt-headers
-	url = https://gitlab.com/VladyslavUsenko/basalt-headers.git
+	url = https://github.com/chengguizi/basalt-headers.git
