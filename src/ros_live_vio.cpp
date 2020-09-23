@@ -471,6 +471,16 @@ void draw_image_overlay(pangolin::View& v, size_t cam_id) {
 
           pangolin::glDrawCircle(vec, 1.0);
 
+          if(vio_config.vio_debug){
+            if(!calib.intrinsics[cam_id].inBound(c.head(2))){
+              std::cout << c.transpose() << " optimised point is out of bound at cam " << cam_id << std::endl;
+              // abort();
+            }
+            if(!calib.intrinsics[cam_id].inBound(vec)){
+              std::cout << vec << " flow obs is out of bound at cam " << cam_id << std::endl;
+              abort();
+            }
+          }
           pangolin::glDrawLine(c[0], c[1],vec[0], vec[1]);
           
         }
