@@ -248,11 +248,11 @@ include_directories(include)
 
 
 add_library(basalt SHARED
-  src/io/dataset_io.cpp
-  src/io/marg_data_io.cpp
-  src/calibration/aprilgrid.cpp
-  src/calibration/calibraiton_helper.cpp
-  src/calibration/vignette.cpp
+  # src/io/dataset_io.cpp
+  # src/io/marg_data_io.cpp
+  # src/calibration/aprilgrid.cpp
+  # src/calibration/calibraiton_helper.cpp
+  # src/calibration/vignette.cpp
   src/utils/vio_config.cpp
   src/optical_flow/optical_flow.cpp
   src/vi_estimator/keypoint_vio.cpp
@@ -268,11 +268,11 @@ add_library(basalt SHARED
 target_link_libraries(basalt PUBLIC ${TBB_LIBRARIES} ${STD_CXX_FS} ${OpenCV_LIBS} ${catkin_LIBRARIES} PRIVATE  apriltag opengv rosbag)
 
 
-add_executable(basalt_calibrate src/calibrate.cpp src/calibration/cam_calib.cpp)
-target_link_libraries(basalt_calibrate basalt pangolin)
+# add_executable(basalt_calibrate src/calibrate.cpp src/calibration/cam_calib.cpp)
+# target_link_libraries(basalt_calibrate basalt pangolin)
 
-add_executable(basalt_calibrate_imu src/calibrate_imu.cpp src/calibration/cam_imu_calib.cpp)
-target_link_libraries(basalt_calibrate_imu basalt pangolin)
+# add_executable(basalt_calibrate_imu src/calibrate_imu.cpp src/calibration/cam_imu_calib.cpp)
+# target_link_libraries(basalt_calibrate_imu basalt pangolin)
 
 
 # add_executable(basalt_vio_sim src/vio_sim.cpp)
