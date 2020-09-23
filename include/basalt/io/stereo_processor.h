@@ -105,6 +105,9 @@ private:
 					const sensor_msgs::ImageConstPtr& r_image_msg,
 					const sensor_msgs::CameraInfoConstPtr& l_info_msg,
 					const sensor_msgs::CameraInfoConstPtr& r_info_msg){	
+
+		(void)l_info_msg;
+		(void)r_info_msg;
 		all_received_++;
 		basalt::OpticalFlowInput::Ptr data(new basalt::OpticalFlowInput);
       	data->img_data.resize(2); //NUM_CAMS = 2

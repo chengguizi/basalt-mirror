@@ -225,6 +225,7 @@ class BundleAdjustmentBase {
       proj->head<2>() = res;
       (*proj)[2] = kpt_pos.id;
     }
+    // hm: res stores the coordinate difference between the observed position and the projected ones
     res -= kpt_obs.pos;
 
     if (d_res_d_p) {

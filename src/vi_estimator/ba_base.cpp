@@ -495,9 +495,12 @@ void BundleAdjustmentBase::filterOutliers(double outlier_threshold,
   std::map<int, std::vector<std::pair<TimeCamId, double>>> outliers;
   computeError(error, &outliers, outlier_threshold);
 
-   std::cout << "============================================" <<
-   std::endl; std::cout << "Num landmarks: " << lmdb.numLandmarks() << " with outliners"
+  if (outliers.size()){
+    std::cout << "============================================" <<
+    std::endl; std::cout << "Num landmarks: " << lmdb.numLandmarks() << " with outliners"
              << outliers.size() << std::endl;
+  }
+   
 
   // hm: iterate through all cameras
   for (const auto& kv : outliers) {
@@ -529,9 +532,9 @@ void BundleAdjustmentBase::filterOutliers(double outlier_threshold,
       lmdb.removeObservations(kv.first, outliers);
     }
   }
-
-  std::cout << "============================================" <<
-  std::endl;
+  if (outliers.size())
+    std::cout << "============================================" << std::endl;
+  
 }
 
 void BundleAdjustmentBase::marginalizeHelper(Eigen::MatrixXd& abs_H,

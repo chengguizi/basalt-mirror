@@ -15,6 +15,7 @@
     <param name= "show_gui" value="true"/>
     <param name= "print_queue" value="false"/>
     <param name= "terminate" value="false"/>
+    <param name= "use_imu" value="true"/>
 </node>
 
 <!--
