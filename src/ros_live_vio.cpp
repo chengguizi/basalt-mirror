@@ -78,7 +78,7 @@ std::string marg_data_path;
 std::mutex m;
 bool step_by_step = false;
 int64_t curr_t_ns = -1;
-int64_t pre_imu_seq = 0;
+
 
 // VIO variables
 basalt::Calibration<double> calib;
@@ -89,17 +89,28 @@ basalt::VioEstimatorBase::Ptr vio;
 basalt::OpticalFlowInput::Ptr last_img_data;
 
 void imuCallback(const sensor_msgs::Imu::ConstPtr& imu_msg){
+
+  static int64_t pre_imu_seq = 0;
+  static int64_t pre_ts = 0;
   // std::cout<<" got imu msgs"<<std::endl;
   if(!pre_imu_seq) {
     pre_imu_seq = imu_msg->header.seq;
+    pre_ts = imu_msg->header.stamp.toNSec();
     return;
-    }
+  }
   // std::cout<<"pre_imu_seq: "<<pre_imu_seq<<", cur_imu_seq: "<<imu_msg->header.seq<<std::endl;
   BASALT_ASSERT(imu_msg->header.seq == pre_imu_seq + 1);
   pre_imu_seq = imu_msg->header.seq;
 
   basalt::ImuData::Ptr data(new basalt::ImuData);
   data->t_ns = imu_msg->header.stamp.toNSec();
+
+  if (pre_ts >= data->t_ns || data->t_ns - pre_ts >= 100e6 ){
+    std::cout << "IMU time jump detected, aborting()" << std::endl;
+    std::cout << "pre_ts = " << double(pre_ts) / 1e9 << "now_ts = " << double(data->t_ns) << std::endl;
+    abort();
+  }
+  pre_ts = data->t_ns;
 
   data->accel = Eigen::Vector3d(
           imu_msg->linear_acceleration.x, imu_msg->linear_acceleration.y,
@@ -185,12 +196,12 @@ int main(int argc, char** argv) {
   if (show_gui) vio->out_vis_queue = &out_vis_queue;
   vio->out_state_queue = &out_state_queue;
 
-  basalt::MargDataSaver::Ptr marg_data_saver;
+  // basalt::MargDataSaver::Ptr marg_data_saver;
 
-  if (!marg_data_path.empty()) {
-    marg_data_saver.reset(new basalt::MargDataSaver(marg_data_path));
-    vio->out_marg_queue = &marg_data_saver->in_marg_queue;
-  }
+  // if (!marg_data_path.empty()) {
+  //   marg_data_saver.reset(new basalt::MargDataSaver(marg_data_path));
+  //   vio->out_marg_queue = &marg_data_saver->in_marg_queue;
+  // }
 
   vio_data_log.Clear();
 
