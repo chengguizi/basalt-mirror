@@ -55,6 +55,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <opencv2/core/core.hpp>
 #include <opencv/cv.hpp>
 #include <sstream>
+#include <time.h>
+
+uint64_t get_monotonic_now(void)
+{
+	struct timespec spec;
+	clock_gettime(CLOCK_MONOTONIC, &spec);
+
+	return spec.tv_sec * 1000000000ULL + spec.tv_nsec;
+}
 namespace basalt {
 
 template <typename Scalar, template <typename> typename Pattern>
@@ -162,6 +171,7 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
     } else {
       t_ns = curr_t_ns;
 
+      // std::cout  << "OpticalFlow receive latency: " << (get_monotonic_now() - t_ns) /1e6 << " ms" << std::endl;
       old_pyramid = pyramid;
 
       pyramid.reset(new std::vector<basalt::ManagedImagePyr<u_int16_t>>);

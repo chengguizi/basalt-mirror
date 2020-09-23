@@ -44,7 +44,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <chrono>
 
+#include <time.h>
+
 namespace basalt {
+
+uint64_t get_monotonic_now(void)
+{
+	struct timespec spec;
+	clock_gettime(CLOCK_MONOTONIC, &spec);
+
+	return spec.tv_sec * 1000000000ULL + spec.tv_nsec;
+}
 
 KeypointVioEstimator::KeypointVioEstimator(
     const Eigen::Vector3d& g, const basalt::Calibration<double>& calib,
@@ -154,6 +164,7 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
       int imu_num{0};
       int skipped_imu{0};
 
+      // std::cout  << "KeypointVioEstimator receive latency: " <<(get_monotonic_now() - curr_frame->t_ns ) / 1e6 << " ms" << std::endl;
       if(config.vio_debug) std::cout << "got frame data at time " << double(curr_frame->t_ns * 1.e-9) << std::endl;
       if (!initialized) {
          // hm: ensure frame arrive after first IMU data
@@ -262,10 +273,15 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
           imu_num++;
         }
 
+        if (config.vio_debug)
+          std::cout << "data->t_ns still in cache is " << double(data->t_ns) * 1e-9 << std::endl;
+
         // hm: this is the case where the last imu time has a gap to the current frame
         if (meas->get_start_t_ns() + meas->get_dt_ns() < curr_frame->t_ns) {
 
           if (config.vio_debug) {
+            std::cout << "meas->get_start_t_ns() " << double(meas->get_start_t_ns()) * 1e-9 << std::endl;
+            std::cout << "meas->get_dt_ns() " << double(meas->get_dt_ns()) * 1e-9 << std::endl;
             std::cout<<"time diff btw imu frame (to current frame): "<<double(curr_frame->t_ns * 1.e-9)<< "-" <<double((meas->get_dt_ns() + meas->get_start_t_ns()) * 1.e-9)<<" = "<<double((curr_frame->t_ns - meas->get_dt_ns() - meas->get_start_t_ns()) * 1.e-9) << std::endl;
           }
 

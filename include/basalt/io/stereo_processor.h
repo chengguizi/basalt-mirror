@@ -18,12 +18,24 @@
 #include <tbb/tbb.h>
 #include <stdlib.h>
 #include <basalt/utils/vio_config.h>
+#include <time.h>
 /**
  * This is an abstract base class for stereo image processing nodes.
  * It handles synchronization of input topics (approximate or exact)
  * and checks for sync errors.
  * To use this class, subclass it and implement the imageCallback() method.
  */
+
+
+uint64_t get_monotonic_now(void)
+{
+	struct timespec spec;
+	clock_gettime(CLOCK_MONOTONIC, &spec);
+
+	return spec.tv_sec * 1000000000ULL + spec.tv_nsec;
+}
+
+
 class StereoProcessor
 {
 
@@ -102,6 +114,7 @@ private:
 			
 			data->t_ns = img_msg->header.stamp.toNSec();
 
+			ROS_INFO_STREAM_THROTTLE(5.0, "stereo image callback delay is " << ( get_monotonic_now() - data->t_ns ) / 1e6 << " ms");
 			if (!img_msg->header.frame_id.empty() &&
 				std::isdigit(img_msg->header.frame_id[0])) {
 				data->img_data[i].exposure = std::stol(img_msg->header.frame_id) * 1e-9;
