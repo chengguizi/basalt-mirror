@@ -199,7 +199,7 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
         }
         trackPoints(old_pyramid->at(i), pyramid->at(i),
                     transforms->observations[i],
-                    new_transforms->observations[i]);
+                    new_transforms->observations[i], i);
 
         if(config.vio_debug){
           std::cout<<"cam"<<i<<"_pre_points: "<< transforms->observations.at(i).size()<<", tracked points from previous frame: "<<new_transforms->observations[i].size()<<" track ratio: "<< float(new_transforms->observations[i].size())/transforms->observations.at(i).size()<<std::endl;
@@ -260,6 +260,21 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
     }
 
     if (output_queue && frame_counter % config.optical_flow_skip_frames == 0) {
+
+      if (config.vio_debug){
+        for (size_t i = 0; i < calib.intrinsics.size(); i++) {
+          for(const auto& kv: transforms->observations[i]){
+            // assert all points tracked are in bound
+            if(!calib.intrinsics[i].inBound(kv.second.translation()))
+            {
+              std::cerr << "out of bound keypoint at cam " << i << std::endl;
+              std::cerr << "position " << kv.second.translation().transpose() << std::endl;
+              abort();
+            }
+          }
+        }
+      }
+
       if(!output_queue->try_push(transforms)){
           std::cout<<"frame to frame optical flow output queue is full: "<<output_queue->size()<<std::endl;
           abort();
@@ -274,7 +289,7 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
                    const Eigen::aligned_map<KeypointId, Eigen::AffineCompact2f>&
                        transform_map_1,
                    Eigen::aligned_map<KeypointId, Eigen::AffineCompact2f>&
-                       transform_map_2, bool leftToRight = false) const {
+                       transform_map_2, int cam_id) const {
     size_t num_points = transform_map_1.size();
 
     std::vector<KeypointId> ids;
@@ -309,14 +324,14 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
         // if(leftToRight)
         //   transform_2 = *transform_1
 
-        bool valid = trackPoint(pyr_1, pyr_2, transform_1, transform_2);
+        bool valid = trackPoint(pyr_1, pyr_2, transform_1, transform_2, cam_id);
 
 
         if (valid) {
           Eigen::AffineCompact2f transform_1_recovered = transform_2;
 
           // hm: validate the point could be tracked in reverse, from current to previous
-          valid = trackPoint(pyr_2, pyr_1, transform_2, transform_1_recovered);
+          valid = trackPoint(pyr_2, pyr_1, transform_2, transform_1_recovered, cam_id);
 
           if (valid) {
             cntValidTrack++;
@@ -362,7 +377,7 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
   inline bool trackPoint(const basalt::ManagedImagePyr<uint16_t>& old_pyr,
                          const basalt::ManagedImagePyr<uint16_t>& pyr,
                          const Eigen::AffineCompact2f& old_transform,
-                         Eigen::AffineCompact2f& transform) const {
+                         Eigen::AffineCompact2f& transform, int cam_id) const {
     bool patch_valid = true;
 
     transform.linear().setIdentity();
@@ -378,6 +393,8 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
       patch_valid &= trackPointAtLevel(pyr.lvl(level), p, transform);
 
       transform.translation() *= scale;
+
+      patch_valid &= calib.intrinsics[cam_id].inBound(transform.translation());
     }
 
     transform.linear() = old_transform.linear() * transform.linear();
@@ -423,10 +440,10 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
 
         transform *= SE2::exp(-inc).matrix(); 
 
-        // const int filter_margin = 2;
+        const int filter_margin = 2;
 
-        if (!calib.intrinsics[0].inBound(transform.translation()))
-        // if (!img_2.InBounds(transform.translation(), filter_margin))
+        // if (!calib.intrinsics[0].inBound(transform.translation()))
+        if (!img_2.InBounds(transform.translation(), filter_margin))
           patch_valid = false;
       } else {
         patch_valid = false;
@@ -486,7 +503,7 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
           std::cout<<"track from left frame to right"<<std::endl;
         }
       // Yu: apply cameara calibration here!!!!
-      trackPoints(pyramid->at(0), pyramid->at(1), new_poses0, new_poses1, true);
+      trackPoints(pyramid->at(0), pyramid->at(1), new_poses0, new_poses1, 1);
 
       for (const auto& kv : new_poses1) {
         transforms->observations.at(1).emplace(kv);
