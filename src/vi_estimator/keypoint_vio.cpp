@@ -140,7 +140,6 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
     data->gyro = calib.calib_gyro_bias.getCalibrated(data->gyro).transpose();
 
     while (true) {
-      if(config.vio_debug){std::cout<<"opt_flow queue size: "<<vision_data_queue.size()<<std::endl;}
 
       // hm: blocking wait for the optical flow results
       vision_data_queue.pop(curr_frame);
@@ -165,7 +164,16 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
       int skipped_imu{0};
 
       // std::cout  << "KeypointVioEstimator receive latency: " <<(get_monotonic_now() - curr_frame->t_ns ) / 1e6 << " ms" << std::endl;
-      if(config.vio_debug) std::cout << "got frame data at time " << double(curr_frame->t_ns * 1.e-9) << std::endl;
+      if(config.vio_debug) 
+        std::cout << "got frame data at time " << double(curr_frame->t_ns * 1.e-9) << " number of good ids = " << curr_frame->num_good_ids << std::endl;
+
+      // hm: if number of good obs is too low, skip this frame
+      if (curr_frame->num_good_ids < 4){
+        std::cout << "too few observations from frontend optical flow, skipping = " << curr_frame->num_good_ids << std::endl; 
+        continue;
+      }
+        
+
       if (!initialized) {
          // hm: ensure frame arrive after first IMU data
         if (curr_frame->t_ns < data->t_ns)
@@ -400,6 +408,7 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
   std::unordered_set<int> unconnected_obs0;
 
   // hm: going through each camera to process each camera's observations of optical flow, current frame
+  // int effective_obs_size = 0;
   for (size_t i = 0; i < opt_flow_meas->observations.size(); i++) {
     // hm: frame_id, camera_id
     TimeCamId tcid_target(opt_flow_meas->t_ns, i);
@@ -407,6 +416,12 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
     for (const auto& kv_obs : opt_flow_meas->observations[i]) {
       int kpt_id = kv_obs.first;
 
+      // hm: skip all observations that are new in the last frame (probably unstable)
+      if ( kv_obs.first >= opt_flow_meas->pre_last_keypoint_id)
+        continue;
+      // else
+      //   effective_obs_size++;
+        
       // hm: landmark map, from the bundle adjustment 
       if (lmdb.landmarkExists(kpt_id)) {
         // hm: obtain the keyframe that hosts the keypoint
@@ -445,12 +460,15 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
       std::cout << "connected0 = " << connected0 << std::endl;
       std::cout << "No. of landmarks in the database: " <<  lmdb.numLandmarks() << std::endl;
     }
-  }
+    
+  } // end for
 
-  // hm: check if keyframe is needed
-  // hm: criteria 1: vio_new_kf_keypoints_thresh, the ratio between landmarked observations and the total observations
-  // hm: criteria 2: vio_min_frames_after_kf, having minimum frames in between
-  if ( ( (lmdb.numLandmarks() < 20 && lmdb.numLandmarks() / unconnected_obs0.size() < 0.3) || double(connected0) / lmdb.numLandmarks() < config.vio_new_kf_keypoints_thresh)
+  // assert(effective_obs_size == opt_flow_meas->num_good_ids);
+
+  // hm: check if keyframe is needed(
+  // hm: criteria 1: landmarks in the database is low (indexed by current key frames), and there are available unconnected ones
+  // hm: criteria 2: only a small ratio of landmarks are observed, time to marginalise old key frames!
+  if ( ( (lmdb.numLandmarks() < 12 && lmdb.numLandmarks() / opt_flow_meas->num_good_ids < 0.6  ) || double(connected0) / (lmdb.numLandmarks() + 1) < config.vio_new_kf_keypoints_thresh)
         && (frames_after_kf > config.vio_min_frames_after_kf))
     take_kf = true;
 
@@ -465,8 +483,7 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
   // hm: 4.3 triangulation correctness is NOT checked
 
   if (take_kf) {
-    if (config.vio_debug)
-      std::cout << "Taking keyframe now, unconnected_obs0.size() = " << unconnected_obs0.size() << std::endl;
+      std::cout << "Taking keyframe now " << double(last_state_t_ns) / 1e9 << ", connected = " << connected0 << ", unconnected = " << unconnected_obs0.size() << ", landmarks = " << lmdb.numLandmarks() << std::endl;
 
     // Triangulate new points from stereo and make keyframe for camera 0
     take_kf = false;

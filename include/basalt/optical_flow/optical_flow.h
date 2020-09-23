@@ -62,6 +62,11 @@ struct OpticalFlowResult {
   using Ptr = std::shared_ptr<OpticalFlowResult>;
 
   int64_t t_ns;
+
+  KeypointId last_keypoint_id;
+  KeypointId pre_last_keypoint_id;
+  int64_t num_good_ids;
+
   std::vector<Eigen::aligned_map<KeypointId, Eigen::AffineCompact2f>>
       observations;
 

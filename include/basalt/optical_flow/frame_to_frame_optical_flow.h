@@ -167,6 +167,8 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
       // hm: detect keypoints in the first image, at level 0
       addPoints();
       filterPoints();
+      assert(transforms->pre_last_keypoint_id == 0);
+      transforms->num_good_ids = 0;
 
     } else {
       t_ns = curr_t_ns;
@@ -215,6 +217,20 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
       // Yu: because addpoints uses optical flow to track
       // so here we need to check if the tracked points valid the epipolar constraint
       filterPoints();
+
+      // hm: count good ids
+      {
+        int good_ids = 0;
+        for (auto& obs : transforms->observations){
+          for (auto& kv : obs){
+            // unsigned
+            if (kv.first < pre_last_keypoint_id)
+              good_ids++;
+          }
+        }
+
+        transforms->num_good_ids = good_ids;
+      }
 
       //draw matching points
       if(config.feature_match_show){
@@ -274,6 +290,12 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
           }
         }
       }
+
+      // hm: addtional metadata regarding the ids that are newly added
+      transforms->last_keypoint_id = last_keypoint_id;
+      transforms->pre_last_keypoint_id = pre_last_keypoint_id;
+
+
 
       if(!output_queue->try_push(transforms)){
           std::cout<<"frame to frame optical flow output queue is full: "<<output_queue->size()<<std::endl;
@@ -454,6 +476,8 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
   }
 
   void addPoints() {
+
+    pre_last_keypoint_id = last_keypoint_id;
     Eigen::aligned_vector<Eigen::Vector2d> pts0;
 
     // hm: add previously tracked points from the first image to pts0 variable
@@ -589,6 +613,7 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
   size_t frame_counter;
 
   KeypointId last_keypoint_id;
+  KeypointId pre_last_keypoint_id;
 
   VioConfig config;
   basalt::Calibration<Scalar> calib;
