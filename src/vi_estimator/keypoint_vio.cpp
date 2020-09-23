@@ -450,7 +450,7 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
   // hm: check if keyframe is needed
   // hm: criteria 1: vio_new_kf_keypoints_thresh, the ratio between landmarked observations and the total observations
   // hm: criteria 2: vio_min_frames_after_kf, having minimum frames in between
-  if ( (lmdb.numLandmarks() < 20 || lmdb.numLandmarks() / unconnected_obs0.size() < 0.2 || double(connected0) / lmdb.numLandmarks() < config.vio_new_kf_keypoints_thresh)
+  if ( ( (lmdb.numLandmarks() < 20 && lmdb.numLandmarks() / unconnected_obs0.size() < 0.3) || double(connected0) / lmdb.numLandmarks() < config.vio_new_kf_keypoints_thresh)
         && (frames_after_kf > config.vio_min_frames_after_kf))
     take_kf = true;
 
