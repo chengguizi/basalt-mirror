@@ -32,6 +32,7 @@
 
 #include <ros/ros.h>
 #include <basalt/imu/imu_types.h>
+#include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <sensor_msgs/Imu.h>
 #include <basalt/io/stereo_processor.h>
@@ -208,8 +209,10 @@ int main(int argc, char** argv) {
 
   std::thread t4([&]() {
     basalt::PoseVelBiasState::Ptr data;
-    ros::Publisher pose_pub = nh.advertise<geometry_msgs::PoseWithCovarianceStamped>("/basalt/pose_nwu", 10);
-    ros::Publisher pose_map_pub = nh.advertise<geometry_msgs::PoseWithCovarianceStamped>("/basalt/pose_enu", 10);
+    ros::Publisher pose_cov_pub = nh.advertise<geometry_msgs::PoseWithCovarianceStamped>("/basalt/pose_nwu", 10);
+    ros::Publisher pose_pub = nh.advertise<geometry_msgs::PoseStamped>("/basalt/pose_cov_nwu", 10);
+    ros::Publisher pose_map_pub = nh.advertise<geometry_msgs::PoseStamped>("/basalt/pose_enu", 10);
+    ros::Publisher pose_cov_map_pub = nh.advertise<geometry_msgs::PoseWithCovarianceStamped>("/basalt/pose_cov_enu", 10);
     while (true) {
       out_state_queue.pop(data);
 
@@ -239,32 +242,63 @@ int main(int argc, char** argv) {
 
       Sophus::SE3d T_m_i = T_m_w * T_w_i;
 
+
+      geometry_msgs::Pose pose, pose_enu;
+
       {
-        geometry_msgs::PoseWithCovarianceStamped poseMsg;
-        poseMsg.header.stamp.nsec = t_ns;
-        poseMsg.header.frame_id = "basalt";
-        poseMsg.pose.pose.position.x =  T_w_i.translation()[0];
-        poseMsg.pose.pose.position.y =  T_w_i.translation()[1];
-        poseMsg.pose.pose.position.z =  T_w_i.translation()[2];
-        poseMsg.pose.pose.orientation.w = T_w_i.unit_quaternion().w();
-        poseMsg.pose.pose.orientation.x = T_w_i.unit_quaternion().x();
-        poseMsg.pose.pose.orientation.y = T_w_i.unit_quaternion().y();
-        poseMsg.pose.pose.orientation.z = T_w_i.unit_quaternion().z();
-        pose_pub.publish(poseMsg);
+        pose.position.x =  T_w_i.translation()[0];
+        pose.position.y =  T_w_i.translation()[1];
+        pose.position.z =  T_w_i.translation()[2];
+        pose.orientation.w = T_w_i.unit_quaternion().w();
+        pose.orientation.x = T_w_i.unit_quaternion().x();
+        pose.orientation.y = T_w_i.unit_quaternion().y();
+        pose.orientation.z = T_w_i.unit_quaternion().z();
       }
 
       {
+        pose_enu.position.x =  T_m_i.translation()[0];
+        pose_enu.position.y =  T_m_i.translation()[1];
+        pose_enu.position.z =  T_m_i.translation()[2];
+        pose_enu.orientation.w = T_m_i.unit_quaternion().w();
+        pose_enu.orientation.x = T_m_i.unit_quaternion().x();
+        pose_enu.orientation.y = T_m_i.unit_quaternion().y();
+        pose_enu.orientation.z = T_m_i.unit_quaternion().z();
+      }
+
+      // pose in local world frame
+      {
+        geometry_msgs::PoseStamped poseMsg;
+        poseMsg.header.stamp.fromNSec(t_ns);
+        poseMsg.header.frame_id = "basalt";
+        poseMsg.pose = pose;
+        pose_pub.publish(poseMsg);
+      }
+
+      // pose with covariance in local world frame
+      {
         geometry_msgs::PoseWithCovarianceStamped poseMsg;
-        poseMsg.header.stamp.nsec = t_ns;
+        poseMsg.header.stamp.fromNSec(t_ns);
+        poseMsg.header.frame_id = "basalt";
+        poseMsg.pose.pose =  pose;
+        pose_cov_pub.publish(poseMsg);
+      }
+
+      // pose in ROS enu world frame
+      {
+        geometry_msgs::PoseStamped poseMsg;
+        poseMsg.header.stamp.fromNSec(t_ns);
         poseMsg.header.frame_id = "map";
-        poseMsg.pose.pose.position.x =  T_m_i.translation()[0];
-        poseMsg.pose.pose.position.y =  T_m_i.translation()[1];
-        poseMsg.pose.pose.position.z =  T_m_i.translation()[2];
-        poseMsg.pose.pose.orientation.w = T_m_i.unit_quaternion().w();
-        poseMsg.pose.pose.orientation.x = T_m_i.unit_quaternion().x();
-        poseMsg.pose.pose.orientation.y = T_m_i.unit_quaternion().y();
-        poseMsg.pose.pose.orientation.z = T_m_i.unit_quaternion().z();
+        poseMsg.pose = pose_enu;
         pose_map_pub.publish(poseMsg);
+      }
+
+      // pose with covariance in ROS enu world frame
+      {
+        geometry_msgs::PoseWithCovarianceStamped poseMsg;
+        poseMsg.header.stamp.fromNSec(t_ns);
+        poseMsg.header.frame_id = "map";
+        poseMsg.pose.pose = pose_enu;
+        pose_cov_map_pub.publish(poseMsg);
       }
         
       
