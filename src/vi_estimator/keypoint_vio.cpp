@@ -298,7 +298,7 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
           }
 
           // hm: maximum 20ms of IMU time modification is allowed
-          BASALT_ASSERT(curr_frame->t_ns - (meas->get_start_t_ns() + meas->get_dt_ns()) < 100e6);
+          // BASALT_ASSERT(curr_frame->t_ns - (meas->get_start_t_ns() + meas->get_dt_ns()) < 500e6);
 
           int64_t tmp = data->t_ns;
           data->t_ns = curr_frame->t_ns;
@@ -319,7 +319,12 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
       }
 
       // hm: pass the optical flow result, and the pre-integration result
-      measure(curr_frame, meas);
+      try{
+        measure(curr_frame, meas);
+      }catch (const std::out_of_range& e) {
+          std::cout << "Out of Range error at measure()" << std::endl;
+      }
+      
       prev_frame = curr_frame;
     }
 
@@ -480,12 +485,16 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
   if (!initialise_baseline){
     // latest state translation to the first pose position
 
-    double moved_dist = (frame_states.at(last_state_t_ns).getState().T_w_i.translation()).norm();
-
-    if ( moved_dist > config.vio_min_triangulation_dist * 1.1 && frames_after_kf > config.vio_min_frames_after_kf){
-      take_kf = true; // take a keyframe when the time is right after start;
-      initialise_baseline = true;
+    try {
+      double moved_dist = (frame_states.at(last_state_t_ns).getState().T_w_i.translation()).norm();
+      if ( moved_dist > config.vio_min_triangulation_dist * 1.1 && frames_after_kf > config.vio_min_frames_after_kf){
+        take_kf = true; // take a keyframe when the time is right after start;
+        initialise_baseline = true;
+      }
+    }catch (const std::out_of_range& e) {
+        std::cout << "Out of Range error at initialise_baseline" << std::endl;
     }
+    
 
   }
 
@@ -796,12 +805,20 @@ void KeypointVioEstimator::marginalize(
         int64_t last_kf = *kf_ids.crbegin(); // the last keyframe always has a state
 
         for (int64_t id : kf_ids) {
-          auto dist = (frame_poses.at(id).getPose().translation() - frame_states.at(last_kf).getState().T_w_i.translation()).norm();
 
-          if (dist > 10){
-            id_to_marg = id;
-            std::cout << "keyframe too far (> 10 m) removing" << std::endl;
+          try {
+            auto dist = (frame_poses.at(id).getPose().translation() - frame_states.at(last_kf).getState().T_w_i.translation()).norm();
+
+            if (dist > 10){
+              id_to_marg = id;
+              std::cout << "keyframe too far (> 10 m) removing" << std::endl;
+            }
+          
+          }catch (const std::out_of_range& e) {
+              std::cout << "Out of Range error at marginalise poses that are too far" << std::endl;
           }
+
+          
             
         }
         

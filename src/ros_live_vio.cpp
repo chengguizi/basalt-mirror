@@ -105,9 +105,10 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& imu_msg){
   basalt::ImuData::Ptr data(new basalt::ImuData);
   data->t_ns = imu_msg->header.stamp.toNSec();
 
-  if (pre_ts >= data->t_ns || data->t_ns - pre_ts >= 100e6 ){
+  // 1 second jump
+  if (pre_ts >= data->t_ns || data->t_ns - pre_ts >= 1000e6 ){
     std::cout << "IMU time jump detected, aborting()" << std::endl;
-    std::cout << "pre_ts = " << double(pre_ts) / 1e9 << "now_ts = " << double(data->t_ns) << std::endl;
+    std::cout << "pre_ts = " << double(pre_ts) / 1e9 << ", now_ts = " << double(data->t_ns) / 1e9  << std::endl;
     abort();
   }
   pre_ts = data->t_ns;

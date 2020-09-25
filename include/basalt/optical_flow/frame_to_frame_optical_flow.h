@@ -82,6 +82,8 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
 
   typedef Sophus::SE2<Scalar> SE2;
 
+  Sophus::SE3d T_0_1; // cam1 in cam0 coordinates
+
   FrameToFrameOpticalFlow(const VioConfig& config,
                           const basalt::Calibration<double>& calib)
       : t_ns(-1), frame_counter(0), last_keypoint_id(0), config(config) {
@@ -91,17 +93,19 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
 
     patch_coord = PatchT::pattern2.template cast<float>();
 
+    assert(calib.intrinsics.size() == 2);
+
     if (calib.intrinsics.size() > 1) {
       Eigen::Matrix4d Ed;
-      Sophus::SE3d T_i_j = calib.T_i_c[0].inverse() * calib.T_i_c[1];
-      computeEssential(T_i_j, Ed);
-      std::cout<<"cam1 to cam0 : " << T_i_j.translation().x() << ","
-              << T_i_j.translation().y() << ","
-              << T_i_j.translation().z() << ","
-              << T_i_j.unit_quaternion().x() << ","
-              << T_i_j.unit_quaternion().y() << ","
-              << T_i_j.unit_quaternion().z() << ","
-              << T_i_j.unit_quaternion().w() << std::endl<<std::endl;
+      T_0_1 = calib.T_i_c[0].inverse() * calib.T_i_c[1];
+      computeEssential(T_0_1, Ed);
+      std::cout<<"cam1 to cam0 : " << T_0_1.translation().x() << ","
+              << T_0_1.translation().y() << ","
+              << T_0_1.translation().z() << ","
+              << T_0_1.unit_quaternion().x() << ","
+              << T_0_1.unit_quaternion().y() << ","
+              << T_0_1.unit_quaternion().z() << ","
+              << T_0_1.unit_quaternion().w() << std::endl<<std::endl;
       E = Ed.cast<Scalar>();
     }
 
@@ -159,6 +163,9 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
                             pyramid->at(i).setFromImage(
                                 *new_img_vec->img_data[i].img,
                                 config.optical_flow_levels);
+                            
+                            // hm: add additional info about which camera it is storing
+                            pyramid->at(i).setCamId(i);
                           }
                         });
 
@@ -305,6 +312,102 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
 
     frame_counter++;
   }
+
+// TODO: use candidate depths to better track objects nearby
+//   void trackPoints_depth(const basalt::ManagedImagePyr<u_int16_t>& pyr_1,
+//                    const basalt::ManagedImagePyr<u_int16_t>& pyr_2,
+//                    const Eigen::aligned_map<KeypointId, Eigen::AffineCompact2f>&
+//                        transform_map_1,
+//                    Eigen::aligned_map<KeypointId, Eigen::AffineCompact2f>&
+//                        transform_map_2) const {
+
+//         size_t num_points = transform_map_1.size();
+
+//         std::vector<KeypointId> ids;
+//         Eigen::aligned_vector<Eigen::AffineCompact2f> init_vec;
+
+//         ids.reserve(num_points);
+//         init_vec.reserve(num_points);
+
+//         for (const auto& kv : transform_map_1) {
+//           ids.push_back(kv.first);
+//           init_vec.push_back(kv.second);
+//         }
+
+//         tbb::concurrent_unordered_map<KeypointId, Eigen::AffineCompact2f> result;
+//         int cntValidTrack{0}, cntValidLnR{0};
+
+//         // hm: this assumes the point is very far (infinity), could we do better?
+//         const std::vector<float> depth_canditates = {50, 10, 5, 3, 1.5};
+
+//         auto compute_func = [&](const tbb::blocked_range<size_t>& range) {
+//         /*yu: check which part is easy to fail in left to right tracking
+//         Three steps to check:
+//         1. trackPointAtLevel: Check one pyr level: if the residul = patch - data, is valid
+//             valid means that 1.1 at least PATTERN_SIZE / 2 number of points that both valid in template and residuals patch
+//                             1.2 the points transformed by the updated and optimized T can still be seen in the image 
+//         2. trackPoint: check if the traking is valid at all pyr levels
+//         3. This Func: square norm diff from "left to right transform" and "right to left transform" should be less than config.optical_flow_max_recovered_dist2
+//         */
+        
+//         for (size_t r = range.begin(); r != range.end(); ++r) {
+//           const KeypointId id = ids[r];
+
+//           const Eigen::AffineCompact2f& transform_1 = init_vec[r];
+//           Eigen::AffineCompact2f transform_2 = transform_1;
+//           // if(leftToRight)
+//           //   transform_2 = *transform_1
+
+//           bool valid = trackPoint(pyr_1, pyr_2, transform_1, transform_2, cam_id);
+
+
+//           if (valid) {
+//             Eigen::AffineCompact2f transform_1_recovered = transform_2;
+
+//             // hm: validate the point could be tracked in reverse, from current to previous
+//             valid = trackPoint(pyr_2, pyr_1, transform_2, transform_1_recovered, cam_id);
+
+//             if (valid) {
+//               cntValidTrack++;
+//               Scalar dist2 = (transform_1.translation() -
+//                               transform_1_recovered.translation())
+//                                 .squaredNorm();
+//               // if(config.vio_debug){
+//               //   std::stringstream ss;
+//               //   if(dist2>500){
+//               //     ss<<"dist2: "<<dist2<<std::endl;
+//               //     ss<<"transform_1: "<<transform_1.translation()<<std::endl;
+//               //     ss<<"transform_1_recovered: "<<transform_1_recovered.translation()<<std::endl;
+//               //   }
+//               //   std::cout<<ss.str()<<std::endl;
+//               // }
+//               if (dist2 < config.optical_flow_max_recovered_dist2) {
+//                 cntValidLnR++;
+//                 result[id] = transform_2;
+//               }
+//             }
+//           }
+//         }
+
+//       };
+
+//       tbb::blocked_range<size_t> range(0, num_points);
+      
+//       tbb::parallel_for(range, compute_func);
+//       // compute_func(range);
+//       //Yu: try to track the low left to right track ratio reason
+//       if(config.vio_debug){
+//           std::cout<<num_points<<" total features from cam0 to track. "
+//           <<" step1 valid: "<< "to do"
+//           <<" step2 valid: "<< float(cntValidTrack)/num_points
+//           <<" step3 valid: "<< float(cntValidLnR)/cntValidTrack<<std::endl;
+          
+//         }
+
+//       transform_map_2.clear();
+//       transform_map_2.insert(result.begin(), result.end());
+// }
+
 
   void trackPoints(const basalt::ManagedImagePyr<u_int16_t>& pyr_1,
                    const basalt::ManagedImagePyr<u_int16_t>& pyr_2,
