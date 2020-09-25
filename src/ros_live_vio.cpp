@@ -77,7 +77,8 @@ std::string marg_data_path;
 
 std::mutex m;
 bool step_by_step = false;
-int64_t curr_t_ns = -1;
+int64_t last_t_ns = -1;
+int64_t first_t_ns = -1;
 
 
 // VIO variables
@@ -232,14 +233,28 @@ int main(int argc, char** argv) {
 
       int64_t t_ns = data->t_ns;
 
-      if (curr_t_ns < 0) curr_t_ns = t_ns;
-
       Sophus::SE3d T_w_i = data->T_w_i;
       Eigen::Vector3d vel_w_i = data->vel_w_i;
       Eigen::Vector3d bg = data->bias_gyro;
       Eigen::Vector3d ba = data->bias_accel;
 
       vio_t_ns.emplace_back(data->t_ns);
+
+      if (last_t_ns > 0){
+        auto delta_t = t_ns - last_t_ns;
+        auto delta_t_w_i = T_w_i.translation() - vio_t_w_i.back();
+
+        // hm: greater than 15 m/s
+        if (delta_t_w_i.norm() / delta_t > 15 )
+        {
+          std::cout << "detect speed to fast > 15 m/s" << std::endl;
+          abort();
+        }
+      }else{
+        first_t_ns = t_ns;
+      }
+      last_t_ns = t_ns;
+      
       vio_t_w_i.emplace_back(T_w_i.translation());
 
       // the w_i here is referring to vision world (for now, it is the same as IMU frame, which is FLU / NWU )
@@ -317,7 +332,7 @@ int main(int argc, char** argv) {
 
       if (show_gui) {
         std::vector<float> vals;
-        vals.push_back((t_ns - curr_t_ns) * 1e-9);
+        vals.push_back((t_ns - first_t_ns) * 1e-9);
 
         for (int i = 0; i < 3; i++) vals.push_back(vel_w_i[i]);
         for (int i = 0; i < 3; i++) vals.push_back(T_w_i.translation()[i]);
