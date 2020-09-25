@@ -187,6 +187,7 @@ class KeypointVioEstimator : public VioEstimatorBase,
   std::set<int64_t> kf_ids;
 
   int64_t last_state_t_ns;
+  int64_t first_state_t_ns;
   Eigen::aligned_map<int64_t, IntegratedImuMeasurement> imu_meas;
 
   const Eigen::Vector3d g;

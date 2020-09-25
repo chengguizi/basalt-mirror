@@ -111,7 +111,10 @@ void KeypointVioEstimator::initialize(int64_t t_ns, const Sophus::SE3d& T_w_i,
   T_w_i_init = T_w_i;
 
   last_state_t_ns = t_ns;
+  first_state_t_ns = t_ns;
   // imu_meas[t_ns] = IntegratedImuMeasurement(t_ns, bg, ba);
+
+  // hm: initialised as the linearised pose, as a state!!!
   frame_states[t_ns] =
       PoseVelBiasStateWithLin(t_ns, T_w_i, vel_w_i, bg, ba, true);
 
@@ -168,8 +171,8 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
         std::cout << "got frame data at time " << double(curr_frame->t_ns * 1.e-9) << " number of good ids = " << curr_frame->num_good_ids << std::endl;
 
       // hm: if number of good obs is too low, skip this frame
-      if (curr_frame->num_good_ids < 4){
-        std::cout << "too few observations from frontend optical flow, skipping = " << curr_frame->num_good_ids << std::endl; 
+      if (curr_frame->num_good_ids < 2){
+        std::cout << "too few observations from frontend optical flow, skipping. num_good_ids = " << curr_frame->num_good_ids << std::endl; 
         continue;
       }
         
@@ -211,6 +214,7 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
         T_w_i_init.setQuaternion(q_w_i*q_g_b);
 
         last_state_t_ns = curr_frame->t_ns;
+        first_state_t_ns = curr_frame->t_ns;
         // imu_meas[last_state_t_ns] =
         //     IntegratedImuMeasurement(last_state_t_ns, bg, ba);
         frame_states[last_state_t_ns] = PoseVelBiasStateWithLin(
@@ -468,9 +472,22 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
   // hm: check if keyframe is needed(
   // hm: criteria 1: landmarks in the database is low (indexed by current key frames), and there are available unconnected ones
   // hm: criteria 2: only a small ratio of landmarks are observed, time to marginalise old key frames!
-  if ( ( (lmdb.numLandmarks() < 12 && lmdb.numLandmarks() / opt_flow_meas->num_good_ids < 0.6  ) || double(connected0) / (lmdb.numLandmarks() + 1) < config.vio_new_kf_keypoints_thresh)
+  if ( ( (lmdb.numLandmarks() < 12 && lmdb.numLandmarks() / opt_flow_meas->num_good_ids < 0.4  ) || double(connected0) / (lmdb.numLandmarks() + 1) < config.vio_new_kf_keypoints_thresh)
         && (frames_after_kf > config.vio_min_frames_after_kf))
     take_kf = true;
+
+  static bool initialise_baseline = false;
+  if (!initialise_baseline){
+    // latest state translation to the first pose position
+
+    double moved_dist = (frame_states.at(last_state_t_ns).getState().T_w_i.translation()).norm();
+
+    if ( moved_dist > config.vio_min_triangulation_dist * 1.1 && frames_after_kf > config.vio_min_frames_after_kf){
+      take_kf = true; // take a keyframe when the time is right after start;
+      initialise_baseline = true;
+    }
+
+  }
 
 
   //// hm: step in initialising a keyframes:
@@ -556,9 +573,12 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
         Sophus::SE3d T_i0_i1 =
             getPoseStateWithLin(tcidl.frame_id).getPose().inverse() *
             getPoseStateWithLin(tcido.frame_id).getPose();
-        // hm: camera to camera transformation
+        // hm: camera to camera transformation (cam1 / tcido in cam0 coordinates)
         Sophus::SE3d T_0_1 =
             calib.T_i_c[0].inverse() * T_i0_i1 * calib.T_i_c[tcido.cam_id];
+
+        // hm: we want the ray of the detected feature to be not parallel to the motion direction
+        if (T_0_1.translation().normalized().dot(p0_3d.head<3>().normalized()) > 0.85 ) continue;
 
         // hm: require distance between the cameras to be large enough
         if (T_0_1.translation().squaredNorm() < min_triang_distance2) continue;
@@ -578,7 +598,7 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
 
         // hm: distance criteria: the inverse distance is resonable
         if (p0_triangulated.array().isFinite().all() &&
-            p0_triangulated[3] > 0 && p0_triangulated[3] < 3.0) {
+            p0_triangulated[3] > 1e-5 && p0_triangulated[3] < 3.0) {
           
           // hm: if it is behind the camera throw away
           if (p0_triangulated[2] < 0.0)
@@ -770,7 +790,24 @@ void KeypointVioEstimator::marginalize(
         }
       }
 
-      // hm: if all sufficiently overlapping, choose the one closest to the last key frame
+      // hm: marginalise poses that are too far (not good position estimation anyway)
+      if (id_to_marg < 0) { 
+
+        int64_t last_kf = *kf_ids.crbegin(); // the last keyframe always has a state
+
+        for (int64_t id : kf_ids) {
+          auto dist = (frame_poses.at(id).getPose().translation() - frame_states.at(last_kf).getState().T_w_i.translation()).norm();
+
+          if (dist > 10){
+            id_to_marg = id;
+            std::cout << "keyframe too far (> 10 m) removing" << std::endl;
+          }
+            
+        }
+        
+      }
+
+      // hm: if all sufficiently overlapping, choose the one closest to the last key frame to remove
       if (id_to_marg < 0) {
         std::vector<int64_t> ids;
         for (int64_t id : kf_ids) {
@@ -783,7 +820,7 @@ void KeypointVioEstimator::marginalize(
 
         for (size_t i = 0; i < ids.size() - 2; i++) {
           double denom = 0;
-          // hm: demorminator: 'average' similarity between all key frames
+          // hm: denominator: 'average' similarity between all key frames, to the keyframe of interest
           for (size_t j = 0; j < ids.size() - 2; j++) {
             denom += 1 / ((frame_poses.at(ids[i]).getPose().translation() -
                            frame_poses.at(ids[j]).getPose().translation())
@@ -798,7 +835,8 @@ void KeypointVioEstimator::marginalize(
                       .norm()) *
               denom;
 
-          if (score < min_score) {
+          // hm: do not remove the first ever keyframe using this criteria
+          if (score < min_score && frame_poses.at(ids[i]).getT_ns() != first_state_t_ns) {
             min_score_id = ids[i];
             min_score = score;
           }
@@ -811,7 +849,7 @@ void KeypointVioEstimator::marginalize(
       // hm: poses_to_marg.emplace is called else where too
       poses_to_marg.emplace(id_to_marg);
 
-      kf_ids.erase(id_to_marg);
+      kf_ids.erase(id_to_marg); // kf_ids removes only when poses are gone, they are added when a key frame is created
     }
 
     //    std::cout << "marg order" << std::endl;
