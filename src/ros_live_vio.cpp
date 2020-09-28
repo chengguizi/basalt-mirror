@@ -34,6 +34,7 @@
 #include <basalt/imu/imu_types.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
+#include <nav_msgs/Odometry.h>
 #include <sensor_msgs/Imu.h>
 #include <basalt/io/stereo_processor.h>
 
@@ -72,8 +73,6 @@ tbb::concurrent_bounded_queue<basalt::ImuData::Ptr>* imu_data_queue = nullptr;
 
 std::vector<int64_t> vio_t_ns;
 Eigen::aligned_vector<Eigen::Vector3d> vio_t_w_i;
-
-std::string marg_data_path;
 
 std::mutex m;
 bool step_by_step = false;
@@ -149,7 +148,6 @@ int main(int argc, char** argv) {
   local_nh.param("print_queue", print_queue, false);
   local_nh.param("terminate", terminate, false);
   local_nh.param("use_imu", use_imu, true);
-  local_nh.param<std::string>("marg_data_path", marg_data_path, "");
 
   if (!config_path.empty()) {
     vio_config.load(config_path);
@@ -198,13 +196,6 @@ int main(int argc, char** argv) {
   if (show_gui) vio->out_vis_queue = &out_vis_queue;
   vio->out_state_queue = &out_state_queue;
 
-  // basalt::MargDataSaver::Ptr marg_data_saver;
-
-  // if (!marg_data_path.empty()) {
-  //   marg_data_saver.reset(new basalt::MargDataSaver(marg_data_path));
-  //   vio->out_marg_queue = &marg_data_saver->in_marg_queue;
-  // }
-
   vio_data_log.Clear();
 
   std::shared_ptr<std::thread> t3;
@@ -226,6 +217,9 @@ int main(int argc, char** argv) {
     ros::Publisher pose_pub = nh.advertise<geometry_msgs::PoseStamped>("/basalt/pose_cov_nwu", 10);
     ros::Publisher pose_map_pub = nh.advertise<geometry_msgs::PoseStamped>("/basalt/pose_enu", 10);
     ros::Publisher pose_cov_map_pub = nh.advertise<geometry_msgs::PoseWithCovarianceStamped>("/basalt/pose_cov_enu", 10);
+    ros::Publisher odom_pub = nh.advertise<nav_msgs::Odometry>("/basalt/odom_nwu", 10);
+    ros::Publisher odom_ned_pub = nh.advertise<nav_msgs::Odometry>("/basalt/odom_ned", 10);
+
     while (true) {
       out_state_queue.pop(data);
 
@@ -260,17 +254,38 @@ int main(int argc, char** argv) {
       // the w_i here is referring to vision world (for now, it is the same as IMU frame, which is FLU / NWU )
       // we want to follow ROS convention on the map coordinate, which is NEU
 
-      Sophus::SE3d T_m_w;
-      Sophus::Matrix3d R_m_w;
+      Sophus::SE3d T_m_w, T_ned_w;
+      Sophus::Matrix3d R_m_w, R_ned_w;
+
+      // change of coordinates from NWU to ENU
       R_m_w <<  0,-1,0,
                 1,0,0,
                 0,0,1; 
       T_m_w.setRotationMatrix(R_m_w);
 
+      // change of coordinates from NWU to NED
+      R_ned_w <<  1,0,0,
+                  0,-1,0,
+                  0,0,-1;
+
+      T_ned_w.setRotationMatrix(R_ned_w);
+
+      // reference: https://dev.px4.io/master/en/ros/external_position_estimation.html#ros_reference_frames
+      // T_w_i: i is in NWU, and w is in NWU
+      // T_m_i: i is in NUW, and m is in ENU
       Sophus::SE3d T_m_i = T_m_w * T_w_i;
 
+      // T_ned_iflu have both world and local frame to be FLU
+      Sophus::SE3d T_ned_iflu = T_ned_w * T_w_i * T_ned_w.inverse();
 
-      geometry_msgs::Pose pose, pose_enu;
+      // vel_w_i is in NWU
+      // vel_ned_iflu is in NED
+      Eigen::Vector3d vel_ned_iflu = R_ned_w * vel_w_i;
+
+
+      geometry_msgs::Pose pose, pose_enu, pose_ned;
+      geometry_msgs::Twist twist, twist_ned;
+      nav_msgs::Odometry odom, odom_ned;
 
       {
         pose.position.x =  T_w_i.translation()[0];
@@ -280,6 +295,10 @@ int main(int argc, char** argv) {
         pose.orientation.x = T_w_i.unit_quaternion().x();
         pose.orientation.y = T_w_i.unit_quaternion().y();
         pose.orientation.z = T_w_i.unit_quaternion().z();
+
+        twist.linear.x = vel_w_i[0];
+        twist.linear.y = vel_w_i[1];
+        twist.linear.z = vel_w_i[2];
       }
 
       {
@@ -292,11 +311,25 @@ int main(int argc, char** argv) {
         pose_enu.orientation.z = T_m_i.unit_quaternion().z();
       }
 
+      {
+        pose_ned.position.x = T_ned_iflu.translation()[0];
+        pose_ned.position.y = T_ned_iflu.translation()[1];
+        pose_ned.position.z = T_ned_iflu.translation()[2];
+        pose_ned.orientation.w = T_ned_iflu.unit_quaternion().w();
+        pose_ned.orientation.x = T_ned_iflu.unit_quaternion().x();
+        pose_ned.orientation.y = T_ned_iflu.unit_quaternion().y();
+        pose_ned.orientation.z = T_ned_iflu.unit_quaternion().z();
+
+        twist_ned.linear.x = vel_ned_iflu[0];
+        twist_ned.linear.y = vel_ned_iflu[1];
+        twist_ned.linear.z = vel_ned_iflu[2];
+      }
+
       // pose in local world frame
       {
         geometry_msgs::PoseStamped poseMsg;
         poseMsg.header.stamp.fromNSec(t_ns);
-        poseMsg.header.frame_id = "basalt";
+        poseMsg.header.frame_id = "odom";
         poseMsg.pose = pose;
         pose_pub.publish(poseMsg);
       }
@@ -305,9 +338,16 @@ int main(int argc, char** argv) {
       {
         geometry_msgs::PoseWithCovarianceStamped poseMsg;
         poseMsg.header.stamp.fromNSec(t_ns);
-        poseMsg.header.frame_id = "basalt";
+        poseMsg.header.frame_id = "odom";
         poseMsg.pose.pose =  pose;
+
+        odom.header = poseMsg.header;
+        odom.child_frame_id = "base_link";
+        odom.pose.pose = pose;
+        odom.twist.twist = twist;
+
         pose_cov_pub.publish(poseMsg);
+        odom_pub.publish(odom);
       }
 
       // pose in ROS enu world frame
@@ -326,6 +366,16 @@ int main(int argc, char** argv) {
         poseMsg.header.frame_id = "map";
         poseMsg.pose.pose = pose_enu;
         pose_cov_map_pub.publish(poseMsg);
+        
+      }
+
+      {
+        odom_ned.header.stamp.fromNSec(t_ns);
+        odom_ned.header.frame_id = "odom_ned";
+        odom_ned.child_frame_id = "base_link_frd";
+        odom_ned.pose.pose = pose_ned;
+        odom_ned.twist.twist = twist_ned;
+        odom_ned_pub.publish(odom_ned);
       }
         
       
