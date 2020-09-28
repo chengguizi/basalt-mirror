@@ -1,0 +1,19 @@
+<launch>
+
+<node pkg="basalt" type="basalt_vio_ros" name="basalt_vio_ros" output="screen" respawn="true">
+    <remap from="/mavros/imu/data/sys_id_9" to ="/mavros/imu/data/sys_id_1"/>  
+    <remap from="/zed/left/image_raw_color" to ="/hil/sensor/stereo/left/image_raw"/>  
+    <remap from="/zed/right/image_raw_color" to ="/hil/sensor/stereo/right/image_raw"/>  
+    <remap from="/zed/left/camera_info_raw" to ="/hil/sensor/stereo/left/camera_info"/>  
+    <remap from="/zed/right/camera_info_raw" to ="/hil/sensor/stereo/right/camera_info"/>  
+
+
+    <param name="calib_file" type = "string" value="$(find basalt)/data/sim/sim.json"/> 
+    <param name="config_path" type = "string" value="$(find basalt)/data/sim/config.json"/> 
+    <param name= "show_gui" value="true"/>
+    <param name= "print_queue" value="false"/>
+    <param name= "terminate" value="false"/>
+    <param name= "use_imu" value="true"/>
+</node>
+
+</launch>
