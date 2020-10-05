@@ -235,13 +235,17 @@ int main(int argc, char** argv) {
       vio_t_ns.emplace_back(data->t_ns);
 
       if (last_t_ns > 0){
-        auto delta_t = t_ns - last_t_ns;
-        auto delta_t_w_i = T_w_i.translation() - vio_t_w_i.back();
 
-        // hm: greater than 15 m/s
-        if (delta_t_w_i.norm() / delta_t > 15 )
+        // hm: abort if speed greater than 15 m/s, probably a failure
+        if (vel_w_i.norm() > 15 )
         {
-          std::cout << "detect speed to fast > 15 m/s" << std::endl;
+          std::cout << "detect speed too fast > 15 m/s : " << vel_w_i.norm() << std::endl;
+          abort();
+        }
+
+        // hm: detect big change in estimated position accross frames, > 1.5m accross frame
+        if ( (vio_t_w_i.back() - T_w_i.translation()).norm() > 1.5){
+          std::cout << "detect translation change > than 1.5 " << (vio_t_w_i.back() - T_w_i.translation()).norm() << std::endl;
           abort();
         }
       }else{
