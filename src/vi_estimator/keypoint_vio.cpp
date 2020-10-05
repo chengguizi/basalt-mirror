@@ -171,10 +171,10 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
         std::cout << "got frame data at time " << double(curr_frame->t_ns * 1.e-9) << " number of good ids = " << curr_frame->num_good_ids << std::endl;
 
       // hm: if number of good obs is too low, skip this frame
-      // if (curr_frame->num_good_ids < 2){
-      //   std::cout << "too few observations from frontend optical flow, skipping. num_good_ids = " << curr_frame->num_good_ids << std::endl; 
-      //   continue;
-      // }
+      if (curr_frame->num_good_ids < 2){
+        std::cout << "WARNING: too few observations from frontend optical flow, num_good_ids = " << curr_frame->num_good_ids << std::endl; 
+        // continue;
+      }
         
 
       if (!initialized) {
@@ -487,7 +487,7 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
 
     try {
       double moved_dist = (frame_states.at(last_state_t_ns).getState().T_w_i.translation()).norm();
-      if ( moved_dist > config.vio_min_triangulation_dist * 1.1 && frames_after_kf > config.vio_min_frames_after_kf){
+      if ( moved_dist > config.vio_min_triangulation_dist * 2 && frames_after_kf > config.vio_min_frames_after_kf){
         take_kf = true; // take a keyframe when the time is right after start;
         initialise_baseline = true;
       }
