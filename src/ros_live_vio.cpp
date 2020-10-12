@@ -258,39 +258,42 @@ int main(int argc, char** argv) {
       // the w_i here is referring to vision world (for now, it is the same as IMU frame, which is FLU / NWU )
       // we want to follow ROS convention on the map coordinate, which is NEU
 
-      Sophus::SE3d T_m_w, T_ned_w;
-      Sophus::Matrix3d R_m_w, R_ned_w;
+      Sophus::Matrix3d R_m_w, R_ned_nwu;
 
       // change of coordinates from NWU to ENU
       R_m_w <<  0,-1,0,
                 1,0,0,
                 0,0,1; 
-      T_m_w.setRotationMatrix(R_m_w);
 
       // change of coordinates from NWU to NED
-      R_ned_w <<  1,0,0,
+      R_ned_nwu <<  1,0,0,
                   0,-1,0,
                   0,0,-1;
 
-      T_ned_w.setRotationMatrix(R_ned_w);
 
       // reference: https://dev.px4.io/master/en/ros/external_position_estimation.html#ros_reference_frames
-      // T_w_i: i is in NWU, and w is in NWU
-      // T_m_i: i is in NUW, and m is in ENU
-      Sophus::SE3d T_m_i = T_m_w * T_w_i;
+      // T_w_i: i is in NWU, and w(basalt local frame) is in NWU
+      // T_m_i: i is in NUW, and m(ROS map) is in ENU
 
-      // T_ned_iflu have both world and local frame to be FLU
-      Sophus::SE3d T_ned_iflu = T_ned_w * T_w_i * T_ned_w.inverse();
+      // for ROS
+      Sophus::SE3d T_m_i;
+      T_m_i.translation() = R_m_w * T_w_i.translation();
+      T_m_i.setRotationMatrix(R_m_w * T_w_i.rotationMatrix() * R_m_w.inverse());
+
+      // for MAVLink Odom message
+      Sophus::SE3d T_ned_frd;
+      T_ned_frd.translation() = R_ned_nwu * T_w_i.translation();
+      T_ned_frd.setRotationMatrix(R_ned_nwu * T_w_i.rotationMatrix() * R_ned_nwu.inverse());
 
       // vel_w_i is in NWU
-      // vel_ned_iflu is in NED
-      Eigen::Vector3d vel_ned_iflu = R_ned_w * vel_w_i;
+      Eigen::Vector3d vel_body_ned =  R_ned_nwu * T_w_i.rotationMatrix().inverse() * vel_w_i;
 
 
       geometry_msgs::Pose pose, pose_enu, pose_ned;
       geometry_msgs::Twist twist, twist_ned;
       nav_msgs::Odometry odom, odom_ned;
 
+      // basalt frame
       {
         pose.position.x =  T_w_i.translation()[0];
         pose.position.y =  T_w_i.translation()[1];
@@ -305,6 +308,7 @@ int main(int argc, char** argv) {
         twist.linear.z = vel_w_i[2];
       }
 
+      // ROS ENU frame
       {
         pose_enu.position.x =  T_m_i.translation()[0];
         pose_enu.position.y =  T_m_i.translation()[1];
@@ -315,18 +319,19 @@ int main(int argc, char** argv) {
         pose_enu.orientation.z = T_m_i.unit_quaternion().z();
       }
 
+      // PX4 NED frame
       {
-        pose_ned.position.x = T_ned_iflu.translation()[0];
-        pose_ned.position.y = T_ned_iflu.translation()[1];
-        pose_ned.position.z = T_ned_iflu.translation()[2];
-        pose_ned.orientation.w = T_ned_iflu.unit_quaternion().w();
-        pose_ned.orientation.x = T_ned_iflu.unit_quaternion().x();
-        pose_ned.orientation.y = T_ned_iflu.unit_quaternion().y();
-        pose_ned.orientation.z = T_ned_iflu.unit_quaternion().z();
+        pose_ned.position.x = T_ned_frd.translation()[0];
+        pose_ned.position.y = T_ned_frd.translation()[1];
+        pose_ned.position.z = T_ned_frd.translation()[2];
+        pose_ned.orientation.w = T_ned_frd.unit_quaternion().w();
+        pose_ned.orientation.x = T_ned_frd.unit_quaternion().x();
+        pose_ned.orientation.y = T_ned_frd.unit_quaternion().y();
+        pose_ned.orientation.z = T_ned_frd.unit_quaternion().z();
 
-        twist_ned.linear.x = vel_ned_iflu[0];
-        twist_ned.linear.y = vel_ned_iflu[1];
-        twist_ned.linear.z = vel_ned_iflu[2];
+        twist_ned.linear.x = vel_body_ned[0];
+        twist_ned.linear.y = vel_body_ned[1];
+        twist_ned.linear.z = vel_body_ned[2];
       }
 
       // pose in local world frame
