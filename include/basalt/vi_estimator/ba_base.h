@@ -156,6 +156,7 @@ class BundleAdjustmentBase {
     Eigen::Matrix<double, 2, 4> Jp;
     bool valid = cam.project(p_t_3d, res, &Jp);
     valid &= res.array().isFinite().all();
+    valid &= cam.inBound(res);
 
     if (!valid) {
       //      std::cerr << " Invalid projection! kpt_pos.dir "
@@ -210,6 +211,7 @@ class BundleAdjustmentBase {
     Eigen::Matrix<double, 2, 4> Jp;
     bool valid = cam.project(p_h_3d, res, &Jp);
     valid &= res.array().isFinite().all();
+    valid &= cam.inBound(res);
 
     if (!valid) {
       //      std::cerr << " Invalid projection! kpt_pos.dir "
