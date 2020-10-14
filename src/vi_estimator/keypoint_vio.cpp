@@ -325,6 +325,7 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
           measure(curr_frame, meas);
         }catch (const std::out_of_range& e) {
             std::cout << "Out of Range error at measure()" << std::endl;
+            throw std::runtime_error("out of range error");
         }
         
         prev_frame = curr_frame;
@@ -824,6 +825,7 @@ void KeypointVioEstimator::marginalize(
           
           }catch (const std::out_of_range& e) {
               std::cout << "Out of Range error at marginalise poses that are too far" << std::endl;
+              throw std::runtime_error("out of range error");
           }
 
           
@@ -1334,8 +1336,13 @@ void KeypointVioEstimator::optimize() {
 
       if (iter == config.vio_filter_iteration) {
         // hm: vio_outlier_threshold is passed to computeError
-        // hm: minimum number of observations is set to 4
-        filterOutliers(config.vio_outlier_threshold, 4);
+        // hm: minimum number of observations is set to 2
+        try{
+          filterOutliers(config.vio_outlier_threshold, 2);
+        }catch(const std::exception& e){
+          throw std::runtime_error("filteroutliers runtime error");
+        }
+        
       }
 
       if (converged) break;

@@ -154,11 +154,13 @@ void BundleAdjustmentBase::computeError(
             [&](const auto& cam) {
               for (size_t i = 0; i < obs_kv.second.size(); i++) {
                 const KeypointObservation& kpt_obs = obs_kv.second[i];
+                // hm: get the landmark of the corresponding observation, this is subjected to optimisation
                 const KeypointPosition& kpt_pos =
                     lmdb.getLandmark(kpt_obs.kpt_id);
 
                 Eigen::Vector2d res;
 
+                // hm: obtain projection error after transformation
                 bool valid = linearizePoint(kpt_obs, kpt_pos, T_t_h, cam, res);
 
                 if (valid) {
@@ -176,6 +178,7 @@ void BundleAdjustmentBase::computeError(
                   error +=
                       (2 - huber_weight) * obs_weight * res.transpose() * res;
                 } else {
+                  // hm: projection is not valid
                   if (outliers) {
                     (*outliers)[kpt_obs.kpt_id].emplace_back(tcid_t, -1);
                   }
@@ -502,9 +505,10 @@ void BundleAdjustmentBase::filterOutliers(double outlier_threshold,
   }
    
 
-  // hm: iterate through all cameras
+  // hm: iterate through all outlier keypoint (landmark)
   for (const auto& kv : outliers) {
     int num_obs = lmdb.numObservations(kv.first);
+    // hm: how many outliers the keypoint has observed
     int num_outliers = kv.second.size();
 
     bool remove = false;
@@ -515,6 +519,7 @@ void BundleAdjustmentBase::filterOutliers(double outlier_threshold,
        std::cout << "\tlm_id: " << kv.first << " num_obs: " << num_obs
                  << " outliers: " << num_outliers << " [";
 
+    // hm: iterate through the camid frames
     for (const auto& kv2 : kv.second) {
       // hm: remove landmarks that are have host projections going off
       if (kv2.second == -2) remove = true;
@@ -522,14 +527,17 @@ void BundleAdjustmentBase::filterOutliers(double outlier_threshold,
            std::cout << kv2.second << ", ";
     }
 
-       std::cout << "] " << std::endl;
+       std::cout << "] " ;
 
+    // in all case, remove observation, if the leftover observation is too small, or the landmark themselves are off, then remove the landmark for all
     if (remove) {
       lmdb.removeLandmark(kv.first);
+      std::cout << "landmark removed:" << kv.first << std::endl;  
     } else {
       std::set<TimeCamId> outliers;
       for (const auto& kv2 : kv.second) outliers.emplace(kv2.first);
       lmdb.removeObservations(kv.first, outliers);
+      std::cout << "num of obs removed:" << outliers.size() << std::endl; 
     }
   }
   if (outliers.size())
