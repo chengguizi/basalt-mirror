@@ -81,11 +81,13 @@ class PatchOpticalFlow : public OpticalFlowBase {
     patch_coord = PatchT::pattern2.template cast<float>();
 
     if (calib.intrinsics.size() > 1) {
-      Sophus::SE3d T_i_j = calib.T_i_c[0].inverse() * calib.T_i_c[1];
-      // Sophus::SE3d T_i_j;
-      // T_i_j.setQuaternion(Eigen::Quaternion(0.0021187, -0.0019631, 0.0001541, 0.9999958));
-      // T_i_j.translation() = Eigen::Vector3d(0.120084, -0.162854, -0.0852036);
-      computeEssential(T_i_j, E);   //Todo(Yu): put the calibrated parameters here
+      try{
+        Sophus::SE3d T_i_j = calib.T_i_c[0].inverse() * calib.T_i_c[1];
+        computeEssential(T_i_j, E);   //Todo(Yu): put the calibrated parameters here
+      }catch(const std::exception& e){
+      throw std::runtime_error("T_i_j runtime error");
+    }
+      
     }
 
     processing_thread.reset(

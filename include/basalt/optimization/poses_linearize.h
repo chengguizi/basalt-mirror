@@ -98,74 +98,80 @@ struct LinearizePosesOpt : public LinearizeBase<Scalar> {
   }
 
   void operator()(const tbb::blocked_range<AprilgridCornersDataIter>& r) {
-    for (const AprilgridCornersData& acd : r) {
-      std::visit(
-          [&](const auto& cam) {
-            constexpr int INTRINSICS_SIZE =
-                std::remove_reference<decltype(cam)>::type::N;
-            typename LinearizeBase<Scalar>::template PoseCalibH<INTRINSICS_SIZE>
-                cph;
 
-            SE3 T_w_i = timestam_to_pose.at(acd.timestamp_ns);
-            SE3 T_w_c =
-                T_w_i * this->common_data.calibration->T_i_c[acd.cam_id];
-            SE3 T_c_w = T_w_c.inverse();
-            Eigen::Matrix4d T_c_w_m = T_c_w.matrix();
+    try{
+      for (const AprilgridCornersData& acd : r) {
+        std::visit(
+            [&](const auto& cam) {
+              constexpr int INTRINSICS_SIZE =
+                  std::remove_reference<decltype(cam)>::type::N;
+              typename LinearizeBase<Scalar>::template PoseCalibH<INTRINSICS_SIZE>
+                  cph;
 
-            double err = 0;
-            double reproj_err = 0;
-            int num_inliers = 0;
+              SE3 T_w_i = timestam_to_pose.at(acd.timestamp_ns);
+              SE3 T_w_c =
+                  T_w_i * this->common_data.calibration->T_i_c[acd.cam_id];
+              SE3 T_c_w = T_w_c.inverse();
+              Eigen::Matrix4d T_c_w_m = T_c_w.matrix();
 
-            for (size_t i = 0; i < acd.corner_pos.size(); i++) {
-              this->linearize_point(acd.corner_pos[i], acd.corner_id[i],
-                                    T_c_w_m, cam, &cph, err, num_inliers,
-                                    reproj_err);
-            }
+              double err = 0;
+              double reproj_err = 0;
+              int num_inliers = 0;
 
-            error += err;
-            reprojection_error += reproj_err;
-            num_points += num_inliers;
+              for (size_t i = 0; i < acd.corner_pos.size(); i++) {
+                this->linearize_point(acd.corner_pos[i], acd.corner_id[i],
+                                      T_c_w_m, cam, &cph, err, num_inliers,
+                                      reproj_err);
+              }
 
-            const Matrix6 Adj =
-                -this->common_data.calibration->T_i_c[acd.cam_id]
-                     .inverse()
-                     .Adj();
+              error += err;
+              reprojection_error += reproj_err;
+              num_points += num_inliers;
 
-            const size_t po =
-                this->common_data.offset_poses->at(acd.timestamp_ns);
-            const size_t co = this->common_data.offset_T_i_c->at(acd.cam_id);
-            const size_t io =
-                this->common_data.offset_intrinsics->at(acd.cam_id);
+              const Matrix6 Adj =
+                  -this->common_data.calibration->T_i_c[acd.cam_id]
+                      .inverse()
+                      .Adj();
 
-            accum.template addH<POSE_SIZE, POSE_SIZE>(
-                po, po, Adj.transpose() * cph.H_pose_accum * Adj);
-            accum.template addB<POSE_SIZE>(po,
-                                           Adj.transpose() * cph.b_pose_accum);
+              const size_t po =
+                  this->common_data.offset_poses->at(acd.timestamp_ns);
+              const size_t co = this->common_data.offset_T_i_c->at(acd.cam_id);
+              const size_t io =
+                  this->common_data.offset_intrinsics->at(acd.cam_id);
 
-            if (acd.cam_id > 0) {
               accum.template addH<POSE_SIZE, POSE_SIZE>(
-                  co, po, -cph.H_pose_accum * Adj);
-              accum.template addH<POSE_SIZE, POSE_SIZE>(co, co,
-                                                        cph.H_pose_accum);
+                  po, po, Adj.transpose() * cph.H_pose_accum * Adj);
+              accum.template addB<POSE_SIZE>(po,
+                                            Adj.transpose() * cph.b_pose_accum);
 
-              accum.template addB<POSE_SIZE>(co, -cph.b_pose_accum);
-            }
+              if (acd.cam_id > 0) {
+                accum.template addH<POSE_SIZE, POSE_SIZE>(
+                    co, po, -cph.H_pose_accum * Adj);
+                accum.template addH<POSE_SIZE, POSE_SIZE>(co, co,
+                                                          cph.H_pose_accum);
 
-            if (this->common_data.opt_intrinsics) {
-              accum.template addH<INTRINSICS_SIZE, POSE_SIZE>(
-                  io, po, cph.H_intr_pose_accum * Adj);
+                accum.template addB<POSE_SIZE>(co, -cph.b_pose_accum);
+              }
 
-              if (acd.cam_id > 0)
+              if (this->common_data.opt_intrinsics) {
                 accum.template addH<INTRINSICS_SIZE, POSE_SIZE>(
-                    io, co, -cph.H_intr_pose_accum);
+                    io, po, cph.H_intr_pose_accum * Adj);
 
-              accum.template addH<INTRINSICS_SIZE, INTRINSICS_SIZE>(
-                  io, io, cph.H_intr_accum);
-              accum.template addB<INTRINSICS_SIZE>(io, cph.b_intr_accum);
-            }
-          },
-          this->common_data.calibration->intrinsics[acd.cam_id].variant);
+                if (acd.cam_id > 0)
+                  accum.template addH<INTRINSICS_SIZE, POSE_SIZE>(
+                      io, co, -cph.H_intr_pose_accum);
+
+                accum.template addH<INTRINSICS_SIZE, INTRINSICS_SIZE>(
+                    io, io, cph.H_intr_accum);
+                accum.template addB<INTRINSICS_SIZE>(io, cph.b_intr_accum);
+              }
+            },
+            this->common_data.calibration->intrinsics[acd.cam_id].variant);
+      }
+    }catch(const std::exception& e){
+      throw std::runtime_error("LinearizePosesOpt runtime error");
     }
+    
   }
 
   void join(LinearizePosesOpt& rhs) {
@@ -225,31 +231,36 @@ struct ComputeErrorPosesOpt : public LinearizeBase<Scalar> {
   }
 
   void operator()(const tbb::blocked_range<AprilgridCornersDataIter>& r) {
-    for (const AprilgridCornersData& acd : r) {
-      std::visit(
-          [&](const auto& cam) {
-            SE3 T_w_i = timestam_to_pose.at(acd.timestamp_ns);
-            SE3 T_w_c =
-                T_w_i * this->common_data.calibration->T_i_c[acd.cam_id];
-            SE3 T_c_w = T_w_c.inverse();
-            Eigen::Matrix4d T_c_w_m = T_c_w.matrix();
+    try{
+        for (const AprilgridCornersData& acd : r) {
+        std::visit(
+            [&](const auto& cam) {
+              SE3 T_w_i = timestam_to_pose.at(acd.timestamp_ns);
+              SE3 T_w_c =
+                  T_w_i * this->common_data.calibration->T_i_c[acd.cam_id];
+              SE3 T_c_w = T_w_c.inverse();
+              Eigen::Matrix4d T_c_w_m = T_c_w.matrix();
 
-            double err = 0;
-            double reproj_err = 0;
-            int num_inliers = 0;
+              double err = 0;
+              double reproj_err = 0;
+              int num_inliers = 0;
 
-            for (size_t i = 0; i < acd.corner_pos.size(); i++) {
-              this->linearize_point(acd.corner_pos[i], acd.corner_id[i],
-                                    T_c_w_m, cam, nullptr, err, num_inliers,
-                                    reproj_err);
-            }
+              for (size_t i = 0; i < acd.corner_pos.size(); i++) {
+                this->linearize_point(acd.corner_pos[i], acd.corner_id[i],
+                                      T_c_w_m, cam, nullptr, err, num_inliers,
+                                      reproj_err);
+              }
 
-            error += err;
-            reprojection_error += reproj_err;
-            num_points += num_inliers;
-          },
-          this->common_data.calibration->intrinsics[acd.cam_id].variant);
+              error += err;
+              reprojection_error += reproj_err;
+              num_points += num_inliers;
+            },
+            this->common_data.calibration->intrinsics[acd.cam_id].variant);
+      }
+    }catch(const std::exception& e){
+      throw std::runtime_error("ComputeErrorPosesOpt runtime error");
     }
+    
   }
 
   void join(ComputeErrorPosesOpt& rhs) {

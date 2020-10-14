@@ -142,191 +142,199 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
     data->accel = calib.calib_accel_bias.getCalibrated(data->accel).transpose();
     data->gyro = calib.calib_gyro_bias.getCalibrated(data->gyro).transpose();
 
-    while (true) {
+    try{
 
-      // hm: blocking wait for the optical flow results
-      vision_data_queue.pop(curr_frame);
+      while (true) {
 
-      // hm: logics to throw away non-latest frames
-      int skipped_image = 0;
-      if (config.vio_enforce_realtime) {
-        // drop current frame if another frame is already in the queue.
-        while (vision_data_queue.try_pop(curr_frame)) {skipped_image++;}
-        if(skipped_image)
-          std::cerr<< "[Warning] skipped opt flow size: "<<skipped_image<<std::endl;
-      }
+        // hm: blocking wait for the optical flow results
+        vision_data_queue.pop(curr_frame);
 
-      // hm: if end of the frame reached, quit looping
-      if (!curr_frame.get()) {
-        break;
-      }
-
-      // Correct camera time offset
-      curr_frame->t_ns += calib.cam_time_offset_ns;
-      int imu_num{0};
-      int skipped_imu{0};
-
-      // std::cout  << "KeypointVioEstimator receive latency: " <<(get_monotonic_now() - curr_frame->t_ns ) / 1e6 << " ms" << std::endl;
-      if(config.vio_debug) 
-        std::cout << "got frame data at time " << double(curr_frame->t_ns * 1.e-9) << " number of good ids = " << curr_frame->num_good_ids << std::endl;
-
-      // hm: if number of good obs is too low, skip this frame
-      if (curr_frame->num_good_ids < 2){
-        std::cout << "WARNING: too few observations from frontend optical flow, num_good_ids = " << curr_frame->num_good_ids << std::endl; 
-        // continue;
-      }
-        
-
-      if (!initialized) {
-         // hm: ensure frame arrive after first IMU data
-        if (curr_frame->t_ns < data->t_ns)
-          continue;
-
-        // hm: data is the pointer to IMU measurement
-        // hm: throw away old imu data before first frame
-        while (data->t_ns < curr_frame->t_ns) {
-          imu_data_queue.pop(data);
-          if (!data.get()) break;
-          data->accel = calib.calib_accel_bias.getCalibrated(data->accel);
-          data->gyro = calib.calib_gyro_bias.getCalibrated(data->gyro);
-          // std::cout << "Skipping IMU data.." << std::endl;
-        }
-        // hm: after the while loop, only a single point data from the IMU is kept. This can be quite bad
-
-        // hm: initialise the velocity as zero, regardless
-        Eigen::Vector3d vel_w_i_init;
-        vel_w_i_init.setZero();
-
-        // hm: FromTwoVectors will return the rotation in quaternion, to make the first vector the same as the second
-        // hm: This basically a change of basis from body frame to global frame
-        // hm: This does not give any treatment for yaw
-        Eigen::Quaterniond q_g_b(Eigen::Quaterniond::FromTwoVectors(
-            data->accel, Eigen::Vector3d::UnitZ()));
-        // T_w_i_init.setQuaternion(Eigen::Quaterniond::FromTwoVectors(
-            // data->accel, Eigen::Vector3d::UnitZ()));
-          Eigen::Matrix<double, 3, 3> M_w_i;  //Yu: rotation matrix from imu to world
-          M_w_i<< 1, 0, 0,
-                  0, 1, 0,
-                  0, 0, 1;
-
-        Eigen::Quaterniond q_w_i(M_w_i);
-        std::cout<<"q_w_i: "<<q_w_i.w()<<", "<<q_w_i.x()<<", "<<q_w_i.y()<<", "<<q_w_i.z()<<std::endl;
-        T_w_i_init.setQuaternion(q_w_i*q_g_b);
-
-        last_state_t_ns = curr_frame->t_ns;
-        first_state_t_ns = curr_frame->t_ns;
-        // imu_meas[last_state_t_ns] =
-        //     IntegratedImuMeasurement(last_state_t_ns, bg, ba);
-        frame_states[last_state_t_ns] = PoseVelBiasStateWithLin(
-            last_state_t_ns, T_w_i_init, vel_w_i_init, bg, ba, true);
-
-        // hm: correspond to the first frame_states added above
-        marg_order.abs_order_map[last_state_t_ns] =
-            std::make_pair(0, POSE_VEL_BIAS_SIZE);
-        marg_order.total_size = POSE_VEL_BIAS_SIZE;
-        marg_order.items = 1;
-
-        std::cout << "Setting up filter: t_ns " << last_state_t_ns << std::endl;
-        std::cout << "T_w_i\n" << T_w_i_init.matrix() << std::endl;
-        std::cout << "vel_w_i " << vel_w_i_init.transpose() << std::endl;
-
-        initialized = true;
-        BASALT_ASSERT(imu_meas.size() == 0);
-      }
-
-      if (prev_frame) {
-        // preintegrate measurements
-
-        // hm: retrieve the last available state in the buffer
-        auto last_state = frame_states.at(last_state_t_ns);
-
-        // hm: mark the pre-integration start time as previous frame's time
-        meas.reset(new IntegratedImuMeasurement(
-            prev_frame->t_ns, last_state.getState().bias_gyro,
-            last_state.getState().bias_accel));
-        
-        // if (config.vio_debug) {
-        //   std::cout<<"gyro bias: "<<last_state.getState().bias_gyro.transpose()<<std::endl;
-        //   std::cout<<"accel bias: "<<last_state.getState().bias_accel.transpose()<<std::endl<<std::endl;
-        // }
-
-        // hm: data is the pointer to IMU measurement, throw away all imu prior to the previous frame
-
-        while (data->t_ns <= prev_frame->t_ns) {
-          imu_data_queue.pop(data);
-          if (!data.get()) break;
-          // hm: to be used in the first run of the while loop below
-          data->accel = calib.calib_accel_bias.getCalibrated(data->accel);
-          data->gyro = calib.calib_gyro_bias.getCalibrated(data->gyro);
-          skipped_imu++;
-          // if(config.vio_debug) std::cout << "popped imu data at time " << double(data->t_ns * 1.e-9) << std::endl;
+        // hm: logics to throw away non-latest frames
+        int skipped_image = 0;
+        if (config.vio_enforce_realtime) {
+          // drop current frame if another frame is already in the queue.
+          while (vision_data_queue.try_pop(curr_frame)) {skipped_image++;}
+          if(skipped_image)
+            std::cerr<< "[Warning] skipped opt flow size: "<<skipped_image<<std::endl;
         }
 
-        // hm: starting from the first imu reading AFTER previous frame time, integrated until the last imu reading before current frame
-        // hm: this may block, due to .pop()
-        auto pre_imu_time = prev_frame->t_ns;
-        while (data->t_ns <= curr_frame->t_ns) {
-          if (config.vio_debug) {
-            std::cout<<"time diff"<<imu_num<<" btw imu frame: "<<double(data->t_ns * 1.e-9)<< "-" <<double(pre_imu_time * 1.e-9)<<" = "<<double((data->t_ns - pre_imu_time) * 1.e-9)<<std::endl;
+        // hm: if end of the frame reached, quit looping
+        if (!curr_frame.get()) {
+          break;
+        }
+
+        // Correct camera time offset
+        curr_frame->t_ns += calib.cam_time_offset_ns;
+        int imu_num{0};
+        int skipped_imu{0};
+
+        // std::cout  << "KeypointVioEstimator receive latency: " <<(get_monotonic_now() - curr_frame->t_ns ) / 1e6 << " ms" << std::endl;
+        if(config.vio_debug) 
+          std::cout << "got frame data at time " << double(curr_frame->t_ns * 1.e-9) << " number of good ids = " << curr_frame->num_good_ids << std::endl;
+
+        // hm: if number of good obs is too low, skip this frame
+        if (curr_frame->num_good_ids < 2){
+          std::cout << "WARNING: too few observations from frontend optical flow, num_good_ids = " << curr_frame->num_good_ids << std::endl; 
+          // continue;
+        }
+          
+
+        if (!initialized) {
+          // hm: ensure frame arrive after first IMU data
+          if (curr_frame->t_ns < data->t_ns)
+            continue;
+
+          // hm: data is the pointer to IMU measurement
+          // hm: throw away old imu data before first frame
+          while (data->t_ns < curr_frame->t_ns) {
+            imu_data_queue.pop(data);
+            if (!data.get()) break;
+            data->accel = calib.calib_accel_bias.getCalibrated(data->accel);
+            data->gyro = calib.calib_gyro_bias.getCalibrated(data->gyro);
+            // std::cout << "Skipping IMU data.." << std::endl;
           }
-          pre_imu_time = data->t_ns;
+          // hm: after the while loop, only a single point data from the IMU is kept. This can be quite bad
 
-          // hm: noise covariance is from config, fixed variance
-          meas->integrate(*data, accel_cov, gyro_cov);
-          // hm: pop for the next round of while loop
-          imu_data_queue.pop(data);
+          // hm: initialise the velocity as zero, regardless
+          Eigen::Vector3d vel_w_i_init;
+          vel_w_i_init.setZero();
 
-          // hm: if the pipe ends with null pointer
-          if (!data.get()) break;
-          // if(config.vio_debug) std::cout << "popped imu data at time " << double(data->t_ns * 1.e-9) << std::endl;
-          // hm: obtain the correction scale and bias, and store it back to imu data
-          data->accel = calib.calib_accel_bias.getCalibrated(data->accel);
-          data->gyro = calib.calib_gyro_bias.getCalibrated(data->gyro);
-          imu_num++;
+          // hm: FromTwoVectors will return the rotation in quaternion, to make the first vector the same as the second
+          // hm: This basically a change of basis from body frame to global frame
+          // hm: This does not give any treatment for yaw
+          Eigen::Quaterniond q_g_b(Eigen::Quaterniond::FromTwoVectors(
+              data->accel, Eigen::Vector3d::UnitZ()));
+          // T_w_i_init.setQuaternion(Eigen::Quaterniond::FromTwoVectors(
+              // data->accel, Eigen::Vector3d::UnitZ()));
+            Eigen::Matrix<double, 3, 3> M_w_i;  //Yu: rotation matrix from imu to world
+            M_w_i<< 1, 0, 0,
+                    0, 1, 0,
+                    0, 0, 1;
+
+          Eigen::Quaterniond q_w_i(M_w_i);
+          std::cout<<"q_w_i: "<<q_w_i.w()<<", "<<q_w_i.x()<<", "<<q_w_i.y()<<", "<<q_w_i.z()<<std::endl;
+          T_w_i_init.setQuaternion(q_w_i*q_g_b);
+
+          last_state_t_ns = curr_frame->t_ns;
+          first_state_t_ns = curr_frame->t_ns;
+          // imu_meas[last_state_t_ns] =
+          //     IntegratedImuMeasurement(last_state_t_ns, bg, ba);
+          frame_states[last_state_t_ns] = PoseVelBiasStateWithLin(
+              last_state_t_ns, T_w_i_init, vel_w_i_init, bg, ba, true);
+
+          // hm: correspond to the first frame_states added above
+          marg_order.abs_order_map[last_state_t_ns] =
+              std::make_pair(0, POSE_VEL_BIAS_SIZE);
+          marg_order.total_size = POSE_VEL_BIAS_SIZE;
+          marg_order.items = 1;
+
+          std::cout << "Setting up filter: t_ns " << last_state_t_ns << std::endl;
+          std::cout << "T_w_i\n" << T_w_i_init.matrix() << std::endl;
+          std::cout << "vel_w_i " << vel_w_i_init.transpose() << std::endl;
+
+          initialized = true;
+          BASALT_ASSERT(imu_meas.size() == 0);
         }
 
-        if (config.vio_debug)
-          std::cout << "data->t_ns still in cache is " << double(data->t_ns) * 1e-9 << std::endl;
+        if (prev_frame) {
+          // preintegrate measurements
 
-        // hm: this is the case where the last imu time has a gap to the current frame
-        if (meas->get_start_t_ns() + meas->get_dt_ns() < curr_frame->t_ns) {
+          // hm: retrieve the last available state in the buffer
+          auto last_state = frame_states.at(last_state_t_ns);
 
-          if (config.vio_debug) {
-            std::cout << "meas->get_start_t_ns() " << double(meas->get_start_t_ns()) * 1e-9 << std::endl;
-            std::cout << "meas->get_dt_ns() " << double(meas->get_dt_ns()) * 1e-9 << std::endl;
-            std::cout<<"time diff btw imu frame (to current frame): "<<double(curr_frame->t_ns * 1.e-9)<< "-" <<double((meas->get_dt_ns() + meas->get_start_t_ns()) * 1.e-9)<<" = "<<double((curr_frame->t_ns - meas->get_dt_ns() - meas->get_start_t_ns()) * 1.e-9) << std::endl;
+          // hm: mark the pre-integration start time as previous frame's time
+          meas.reset(new IntegratedImuMeasurement(
+              prev_frame->t_ns, last_state.getState().bias_gyro,
+              last_state.getState().bias_accel));
+          
+          // if (config.vio_debug) {
+          //   std::cout<<"gyro bias: "<<last_state.getState().bias_gyro.transpose()<<std::endl;
+          //   std::cout<<"accel bias: "<<last_state.getState().bias_accel.transpose()<<std::endl<<std::endl;
+          // }
+
+          // hm: data is the pointer to IMU measurement, throw away all imu prior to the previous frame
+
+          while (data->t_ns <= prev_frame->t_ns) {
+            imu_data_queue.pop(data);
+            if (!data.get()) break;
+            // hm: to be used in the first run of the while loop below
+            data->accel = calib.calib_accel_bias.getCalibrated(data->accel);
+            data->gyro = calib.calib_gyro_bias.getCalibrated(data->gyro);
+            skipped_imu++;
+            // if(config.vio_debug) std::cout << "popped imu data at time " << double(data->t_ns * 1.e-9) << std::endl;
           }
 
-          // hm: maximum 20ms of IMU time modification is allowed
-          // BASALT_ASSERT(curr_frame->t_ns - (meas->get_start_t_ns() + meas->get_dt_ns()) < 500e6);
+          // hm: starting from the first imu reading AFTER previous frame time, integrated until the last imu reading before current frame
+          // hm: this may block, due to .pop()
+          auto pre_imu_time = prev_frame->t_ns;
+          while (data->t_ns <= curr_frame->t_ns) {
+            if (config.vio_debug) {
+              std::cout<<"time diff"<<imu_num<<" btw imu frame: "<<double(data->t_ns * 1.e-9)<< "-" <<double(pre_imu_time * 1.e-9)<<" = "<<double((data->t_ns - pre_imu_time) * 1.e-9)<<std::endl;
+            }
+            pre_imu_time = data->t_ns;
 
-          int64_t tmp = data->t_ns;
-          data->t_ns = curr_frame->t_ns;
-          meas->integrate(*data, accel_cov, gyro_cov);
-          data->t_ns = tmp;
-          imu_num++;
+            // hm: noise covariance is from config, fixed variance
+            meas->integrate(*data, accel_cov, gyro_cov);
+            // hm: pop for the next round of while loop
+            imu_data_queue.pop(data);
 
+            // hm: if the pipe ends with null pointer
+            if (!data.get()) break;
+            // if(config.vio_debug) std::cout << "popped imu data at time " << double(data->t_ns * 1.e-9) << std::endl;
+            // hm: obtain the correction scale and bias, and store it back to imu data
+            data->accel = calib.calib_accel_bias.getCalibrated(data->accel);
+            data->gyro = calib.calib_gyro_bias.getCalibrated(data->gyro);
+            imu_num++;
+          }
+
+          if (config.vio_debug)
+            std::cout << "data->t_ns still in cache is " << double(data->t_ns) * 1e-9 << std::endl;
+
+          // hm: this is the case where the last imu time has a gap to the current frame
+          if (meas->get_start_t_ns() + meas->get_dt_ns() < curr_frame->t_ns) {
+
+            if (config.vio_debug) {
+              std::cout << "meas->get_start_t_ns() " << double(meas->get_start_t_ns()) * 1e-9 << std::endl;
+              std::cout << "meas->get_dt_ns() " << double(meas->get_dt_ns()) * 1e-9 << std::endl;
+              std::cout<<"time diff btw imu frame (to current frame): "<<double(curr_frame->t_ns * 1.e-9)<< "-" <<double((meas->get_dt_ns() + meas->get_start_t_ns()) * 1.e-9)<<" = "<<double((curr_frame->t_ns - meas->get_dt_ns() - meas->get_start_t_ns()) * 1.e-9) << std::endl;
+            }
+
+            // hm: maximum 20ms of IMU time modification is allowed
+            // BASALT_ASSERT(curr_frame->t_ns - (meas->get_start_t_ns() + meas->get_dt_ns()) < 500e6);
+
+            int64_t tmp = data->t_ns;
+            data->t_ns = curr_frame->t_ns;
+            meas->integrate(*data, accel_cov, gyro_cov);
+            data->t_ns = tmp;
+            imu_num++;
+
+          }
+
+          if (config.vio_debug) {
+            std::cout<<"time between frames: "<<double(curr_frame->t_ns * 1.e-9)<< "-" <<double(prev_frame->t_ns * 1.e-9)<<" = "<<double((curr_frame->t_ns - prev_frame->t_ns) * 1.e-9)<<std::endl;
+            std::cout<<"imu num used for preintegration: "<<imu_num<<std::endl;
+            std::cout<<"skipped imu between frames: "<<skipped_imu<<std::endl;
+            std::cout<<"imu buffer size: "<<imu_data_queue.size()<<std::endl;
+            std::cout<<"current latest imu timestamp: "<<double(data->t_ns * 1.e-9) <<std::endl;
+
+          }
         }
 
-        if (config.vio_debug) {
-          std::cout<<"time between frames: "<<double(curr_frame->t_ns * 1.e-9)<< "-" <<double(prev_frame->t_ns * 1.e-9)<<" = "<<double((curr_frame->t_ns - prev_frame->t_ns) * 1.e-9)<<std::endl;
-          std::cout<<"imu num used for preintegration: "<<imu_num<<std::endl;
-          std::cout<<"skipped imu between frames: "<<skipped_imu<<std::endl;
-          std::cout<<"imu buffer size: "<<imu_data_queue.size()<<std::endl;
-          std::cout<<"current latest imu timestamp: "<<double(data->t_ns * 1.e-9) <<std::endl;
-
+        // hm: pass the optical flow result, and the pre-integration result
+        try{
+          measure(curr_frame, meas);
+        }catch (const std::out_of_range& e) {
+            std::cout << "Out of Range error at measure()" << std::endl;
         }
+        
+        prev_frame = curr_frame;
       }
 
-      // hm: pass the optical flow result, and the pre-integration result
-      try{
-        measure(curr_frame, meas);
-      }catch (const std::out_of_range& e) {
-          std::cout << "Out of Range error at measure()" << std::endl;
-      }
-      
-      prev_frame = curr_frame;
+    }catch(const std::exception& e){
+      throw std::runtime_error("KeypointVioEstimator proc_func runtime error");
     }
+    
+    
 
     if (out_vis_queue) out_vis_queue->push(nullptr);
     if (out_marg_queue) out_marg_queue->push(nullptr);

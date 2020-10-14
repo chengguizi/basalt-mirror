@@ -96,17 +96,22 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
     assert(calib.intrinsics.size() == 2);
 
     if (calib.intrinsics.size() > 1) {
-      Eigen::Matrix4d Ed;
-      T_0_1 = calib.T_i_c[0].inverse() * calib.T_i_c[1];
-      computeEssential(T_0_1, Ed);
-      std::cout<<"cam1 to cam0 : " << T_0_1.translation().x() << ","
-              << T_0_1.translation().y() << ","
-              << T_0_1.translation().z() << ","
-              << T_0_1.unit_quaternion().x() << ","
-              << T_0_1.unit_quaternion().y() << ","
-              << T_0_1.unit_quaternion().z() << ","
-              << T_0_1.unit_quaternion().w() << std::endl<<std::endl;
-      E = Ed.cast<Scalar>();
+      try{
+        Eigen::Matrix4d Ed;
+        T_0_1 = calib.T_i_c[0].inverse() * calib.T_i_c[1];
+        computeEssential(T_0_1, Ed);
+        std::cout<<"cam1 to cam0 : " << T_0_1.translation().x() << ","
+                << T_0_1.translation().y() << ","
+                << T_0_1.translation().z() << ","
+                << T_0_1.unit_quaternion().x() << ","
+                << T_0_1.unit_quaternion().y() << ","
+                << T_0_1.unit_quaternion().z() << ","
+                << T_0_1.unit_quaternion().w() << std::endl<<std::endl;
+        E = Ed.cast<Scalar>();
+      }catch(const std::exception& e){
+        throw std::runtime_error("T_0_1 runtime error");
+      }
+      
     }
 
     processing_thread.reset(
@@ -117,25 +122,29 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
 
   void processingLoop() {
     OpticalFlowInput::Ptr input_ptr;
+    try{
+      while (true) {
+        input_queue.pop(input_ptr);
 
-    while (true) {
-      input_queue.pop(input_ptr);
+        // hm: add logic for realtime requirement
+        if (config.vio_enforce_realtime){
+          int skipped_image = 0;
+          while (input_queue.try_pop(input_ptr)) {skipped_image++;}
+          if(skipped_image)
+            std::cerr<< "[Optical Flow Warning] skipped input image size: "<<skipped_image<<std::endl;
+        }
 
-      // hm: add logic for realtime requirement
-      if (config.vio_enforce_realtime){
-        int skipped_image = 0;
-        while (input_queue.try_pop(input_ptr)) {skipped_image++;}
-        if(skipped_image)
-          std::cerr<< "[Optical Flow Warning] skipped input image size: "<<skipped_image<<std::endl;
+        if (!input_ptr.get()) {
+          if (output_queue) output_queue->push(nullptr);
+          break;
+        }
+
+        processFrame(input_ptr->t_ns, input_ptr);
       }
-
-      if (!input_ptr.get()) {
-        if (output_queue) output_queue->push(nullptr);
-        break;
-      }
-
-      processFrame(input_ptr->t_ns, input_ptr);
+    }catch(const std::exception& e){
+      throw std::runtime_error("frame to frame optical flow processingLoop runtime error");
     }
+    
   }
 
   void processFrame(int64_t curr_t_ns, OpticalFlowInput::Ptr& new_img_vec) {
