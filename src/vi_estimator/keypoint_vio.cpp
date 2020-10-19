@@ -809,30 +809,30 @@ void KeypointVioEstimator::marginalize(
       }
 
       // hm: marginalise poses that are too far (not good position estimation anyway)
-      if (id_to_marg < 0) { 
+      // if (id_to_marg < 0) { 
 
-        int64_t last_kf = *kf_ids.crbegin(); // the last keyframe always has a state
+      //   int64_t last_kf = *kf_ids.crbegin(); // the last keyframe always has a state
 
-        for (int64_t id : kf_ids) {
+      //   for (int64_t id : kf_ids) {
 
-          try {
-            auto dist = (frame_poses.at(id).getPose().translation() - frame_states.at(last_kf).getState().T_w_i.translation()).norm();
+      //     try {
+      //       auto dist = (frame_poses.at(id).getPose().translation() - frame_states.at(last_kf).getState().T_w_i.translation()).norm();
 
-            if (dist > 10){
-              id_to_marg = id;
-              std::cout << "keyframe too far (> 10 m) removing" << std::endl;
-            }
+      //       if (dist > 10){
+      //         id_to_marg = id;
+      //         std::cout << "keyframe too far (> 10 m) removing" << std::endl;
+      //       }
           
-          }catch (const std::out_of_range& e) {
-              std::cout << "Out of Range error at marginalise poses that are too far" << std::endl;
-              throw std::runtime_error("out of range error");
-          }
+      //     }catch (const std::out_of_range& e) {
+      //         std::cout << "Out of Range error at marginalise poses that are too far" << std::endl;
+      //         throw std::runtime_error("out of range error");
+      //     }
 
           
             
-        }
+      //   }
         
-      }
+      // }
 
       // hm: if all sufficiently overlapping, choose the one closest to the last key frame to remove
       if (id_to_marg < 0) {
