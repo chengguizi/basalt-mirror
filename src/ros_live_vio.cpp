@@ -99,7 +99,10 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& imu_msg){
     return;
   }
   // std::cout<<"pre_imu_seq: "<<pre_imu_seq<<", cur_imu_seq: "<<imu_msg->header.seq<<std::endl;
-  BASALT_ASSERT(imu_msg->header.seq == pre_imu_seq + 1);
+  if(imu_msg->header.seq != pre_imu_seq + 1){
+    std::cout << "IMU packet loss, sequence number not continuous, now" << imu_msg->header.seq << " and previous " << pre_imu_seq << std::endl;
+    throw std::runtime_error("abort because of bad IMU stream");
+  }
   pre_imu_seq = imu_msg->header.seq;
 
   basalt::ImuData::Ptr data(new basalt::ImuData);
