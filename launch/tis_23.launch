@@ -2,7 +2,7 @@
 <launch>
 <!-- <arg name="system_id" default="6"/> -->
 
-<node pkg="basalt" type="basalt_vio_ros" name="basalt_vio_ros" output="screen" respawn="true">
+<node pkg="basalt" type="basalt_vio_ros" name="basalt_vio_ros" output="screen" respawn="false">
     <remap from="/mavros/imu/data/sys_id_9" to ="/mavros/imu/data"/>  
     <remap from="/zed/left/image_raw_color" to ="/tiscamera_ros/fisheye_left/image_rect_raw"/>  
     <remap from="/zed/right/image_raw_color" to ="/tiscamera_ros/fisheye_right/image_rect_raw"/>  
