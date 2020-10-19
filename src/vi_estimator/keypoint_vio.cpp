@@ -326,6 +326,10 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
         }catch (const std::out_of_range& e) {
             std::cout << "Out of Range error at measure()" << std::endl;
             throw std::runtime_error("out of range error");
+        }catch (const std::runtime_error& e){
+            throw std::runtime_error("runtime error at measure()");
+        }catch(const std::exception& e){
+            throw std::runtime_error("other error at measure()");
         }
         
         prev_frame = curr_frame;
@@ -486,7 +490,7 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
   // hm: check if keyframe is needed(
   // hm: criteria 1: landmarks in the database is low (indexed by current key frames), and there are available unconnected ones
   // hm: criteria 2: only a small ratio of landmarks are observed, time to marginalise old key frames!
-  if ( ( (lmdb.numLandmarks() < 12 && lmdb.numLandmarks() / opt_flow_meas->num_good_ids < 0.4  ) || double(connected0) / (lmdb.numLandmarks() + 1) < config.vio_new_kf_keypoints_thresh)
+  if ( ( (lmdb.numLandmarks() < 12 && lmdb.numLandmarks() / (opt_flow_meas->num_good_ids + 1) < 0.4  ) || double(connected0) / (lmdb.numLandmarks() + 1) < config.vio_new_kf_keypoints_thresh)
         && (frames_after_kf > config.vio_min_frames_after_kf))
     take_kf = true;
 
@@ -501,10 +505,28 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
         initialise_baseline = true;
       }
     }catch (const std::out_of_range& e) {
-        std::cout << "Out of Range error at initialise_baseline" << std::endl;
+        throw std::runtime_error("Out of Range error at initialise_baseline");
+    }catch(const std::exception& e){
+      std::cout << e.what() << std::endl;
+      throw std::runtime_error("other exception at initialise_baseline");
     }
     
 
+  }else{
+
+    assert(kf_ids.size() > 0);
+
+    // hm: check if we have move sufficiently far    
+    try {
+      const double max_dist_bt_keyframes = 8.0;
+      double moved_dist = (frame_states.at(last_state_t_ns).getState().T_w_i.translation() - frame_poses.cbegin()->second.getPose().translation()).norm();
+      if (moved_dist > max_dist_bt_keyframes)
+        take_kf = true;
+    }catch (const std::out_of_range& e){
+      throw std::runtime_error("Out of Range error at max_dist_bt_keyframes checking");
+    }catch(const std::exception& e){
+      throw std::runtime_error("other exception at max_dist_bt_keyframes checking");
+    }
   }
 
 
@@ -516,147 +538,160 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
   // hm: 4.1 for each p1, obtain the relative camera pose transformation to p0, T_0_1
   // hm: 4.2 translation has a threshold vio_min_triangulation_dist, to ensure proper triangulation
   // hm: 4.3 triangulation correctness is NOT checked
+  try{
+    if (take_kf) {
+        std::cout << "Taking keyframe now " << double(last_state_t_ns) / 1e9 << ", connected = " << connected0 << ", unconnected = " << unconnected_obs0.size() << ", landmarks = " << lmdb.numLandmarks() << std::endl;
 
-  if (take_kf) {
-      std::cout << "Taking keyframe now " << double(last_state_t_ns) / 1e9 << ", connected = " << connected0 << ", unconnected = " << unconnected_obs0.size() << ", landmarks = " << lmdb.numLandmarks() << std::endl;
+      // Triangulate new points from stereo and make keyframe for camera 0
+      take_kf = false;
+      frames_after_kf = 0;
+      kf_ids.emplace(last_state_t_ns);
 
-    // Triangulate new points from stereo and make keyframe for camera 0
-    take_kf = false;
-    frames_after_kf = 0;
-    kf_ids.emplace(last_state_t_ns);
+      // hm: 0 means first camera
+      TimeCamId tcidl(opt_flow_meas->t_ns, 0);
 
-    // hm: 0 means first camera
-    TimeCamId tcidl(opt_flow_meas->t_ns, 0);
+      BASALT_ASSERT(last_state_t_ns == opt_flow_meas->t_ns);
 
-    BASALT_ASSERT(last_state_t_ns == opt_flow_meas->t_ns);
+      int num_points_added = 0;
+      // hm: loop over unconnected keypoint ids
+      for (int lm_id : unconnected_obs0) {
+        // Find all observations
+        // hm: for a given keypoint (id = lm_id)
+        std::map<TimeCamId, KeypointObservation> kp_obs;
 
-    int num_points_added = 0;
-    // hm: loop over unconnected keypoint ids
-    for (int lm_id : unconnected_obs0) {
-      // Find all observations
-      // hm: for a given keypoint (id = lm_id)
-      std::map<TimeCamId, KeypointObservation> kp_obs;
+        // hm: construct kp_obs
+        // hm: kv iterates over time
+        for (const auto& kv : prev_opt_flow_res) {
+          // hm: k = camera id, observations.size() is the number of cameras
+          for (size_t k = 0; k < kv.second->observations.size(); k++) {
+            // hm: at the end, kp_obs stores the observations for each view in each timestamp
+            auto it = kv.second->observations[k].find(lm_id);
+            if (it != kv.second->observations[k].end()) {
+              // hm: it now is the observation
+              // hm: time(keyframe id), and camera id
+              TimeCamId tcido(kv.first, k);
 
-      // hm: construct kp_obs
-      // hm: kv iterates over time
-      for (const auto& kv : prev_opt_flow_res) {
-        // hm: k = camera id, observations.size() is the number of cameras
-        for (size_t k = 0; k < kv.second->observations.size(); k++) {
-          // hm: at the end, kp_obs stores the observations for each view in each timestamp
-          auto it = kv.second->observations[k].find(lm_id);
-          if (it != kv.second->observations[k].end()) {
-            // hm: it now is the observation
-            // hm: time(keyframe id), and camera id
-            TimeCamId tcido(kv.first, k);
+              KeypointObservation kobs;
+              kobs.kpt_id = lm_id;
+              kobs.pos = it->second.translation().cast<double>();
 
-            KeypointObservation kobs;
-            kobs.kpt_id = lm_id;
-            kobs.pos = it->second.translation().cast<double>();
-
-            // obs[tcidl][tcido].push_back(kobs);
-            kp_obs[tcido] = kobs;
+              // obs[tcidl][tcido].push_back(kobs);
+              kp_obs[tcido] = kobs;
+            }
           }
         }
-      }
 
-      // hm: now kp_obs stores all observations pointing to the same landmark, over time and over camera views
+        // hm: now kp_obs stores all observations pointing to the same landmark, over time and over camera views
 
-      // triangulate
-      bool valid_kp = false;
-      // hm: config vio_min_triangulation_dist
-      const double min_triang_distance2 =
-          config.vio_min_triangulation_dist * config.vio_min_triangulation_dist;
-      // hm: loop over all cameras, for each observation of the SAME keypoint
-      for (const auto& kv_obs : kp_obs) {
-        //Yu: break once we find a valid 3d point between this and one of previous observations 
-        if (valid_kp) break;     
-        TimeCamId tcido = kv_obs.first;
-
-        const Eigen::Vector2d p0 = opt_flow_meas->observations.at(0)
-                                       .at(lm_id)
-                                       .translation()
-                                       .cast<double>();
-        const Eigen::Vector2d p1 = prev_opt_flow_res[tcido.frame_id]
-                                       ->observations[tcido.cam_id]
-                                       .at(lm_id)
-                                       .translation()
-                                       .cast<double>();
-
-        Eigen::Vector4d p0_3d, p1_3d;
-        bool valid1 = calib.intrinsics[0].unproject(p0, p0_3d);
-        bool valid2 = calib.intrinsics[tcido.cam_id].unproject(p1, p1_3d);
-        if (!valid1 || !valid2) continue;
-
-        // hm: the pose would be far at first, as it is sorted by time and then by camera views
-        Sophus::SE3d T_i0_i1 =
-            getPoseStateWithLin(tcidl.frame_id).getPose().inverse() *
-            getPoseStateWithLin(tcido.frame_id).getPose();
-        // hm: camera to camera transformation (cam1 / tcido in cam0 coordinates)
-        Sophus::SE3d T_0_1 =
-            calib.T_i_c[0].inverse() * T_i0_i1 * calib.T_i_c[tcido.cam_id];
-
-        // hm: we want the ray of the detected feature to be not parallel to the motion direction
-        if (T_0_1.translation().normalized().dot(p0_3d.head<3>().normalized()) > 0.85 ) continue;
-
-        // hm: require distance between the cameras to be large enough
-        if (T_0_1.translation().squaredNorm() < min_triang_distance2) continue;
-
-        Eigen::Vector4d p0_triangulated =
-            triangulate(p0_3d.head<3>(), p1_3d.head<3>(), T_0_1);
-
-        if(config.vio_debug){
-          if(tcidl.frame_id == tcido.frame_id){
-            std::cout << "same frame pairs" << std::endl;
-            std::cout << "p0_3d " << p0_3d.head<3>().transpose() << std::endl;
-            std::cout << "p1_3d " << p1_3d.head<3>().transpose() << std::endl;
-          }
-            
-          std::cout<< "initialise keyframe lm_id: " << lm_id << ", p0_triangulated: "<<p0_triangulated.transpose()<<std::endl;
-        }
-
-        // hm: distance criteria: the inverse distance is resonable
-        if (p0_triangulated.array().isFinite().all() &&
-            p0_triangulated[3] > 1e-5 && p0_triangulated[3] < 3.0) {
-          
-          // hm: if it is behind the camera throw away
-          if (p0_triangulated[2] < 0.0)
-          {
-            if (config.vio_debug)
-              std::cout << "point " << p0_triangulated.transpose() <<" is behind the camera, throw away" << std::endl;
-            continue;
-          }
-          // hm: defined in the landmark_database
-          KeypointPosition kpt_pos;
-          kpt_pos.kf_id = tcidl;
-          // hm: representation of 3d direction, using 2 numbers
-          kpt_pos.dir = StereographicParam<double>::project(p0_triangulated);
-          // hm: inverse distance
-          kpt_pos.id = p0_triangulated[3];
-          lmdb.addLandmark(lm_id, kpt_pos);
-
-          num_points_added++;
-          valid_kp = true;
-        }
-      }
-      // Yu:add all the observations to the newly added point
-      // if(config.vio_debug){
-      //     std::cout<<"valid_kp: "<<valid_kp<<std::endl;
-      // }
-      if (valid_kp) {
+        // triangulate
+        bool valid_kp = false;
+        // hm: config vio_min_triangulation_dist
+        const double min_triang_distance2 =
+            config.vio_min_triangulation_dist * config.vio_min_triangulation_dist;
+        // hm: loop over all cameras, for each observation of the SAME keypoint
         for (const auto& kv_obs : kp_obs) {
-          lmdb.addObservation(kv_obs.first, kv_obs.second);
+          //Yu: break once we find a valid 3d point between this and one of previous observations 
+          if (valid_kp) break;     
+          TimeCamId tcido = kv_obs.first;
+
+          const Eigen::Vector2d p0 = opt_flow_meas->observations.at(0)
+                                        .at(lm_id)
+                                        .translation()
+                                        .cast<double>();
+          const Eigen::Vector2d p1 = prev_opt_flow_res[tcido.frame_id]
+                                        ->observations[tcido.cam_id]
+                                        .at(lm_id)
+                                        .translation()
+                                        .cast<double>();
+
+          Eigen::Vector4d p0_3d, p1_3d;
+          bool valid1 = calib.intrinsics[0].unproject(p0, p0_3d);
+          bool valid2 = calib.intrinsics[tcido.cam_id].unproject(p1, p1_3d);
+          if (!valid1 || !valid2) continue;
+
+          // hm: the pose would be far at first, as it is sorted by time and then by camera views
+          Sophus::SE3d T_i0_i1 =
+              getPoseStateWithLin(tcidl.frame_id).getPose().inverse() *
+              getPoseStateWithLin(tcido.frame_id).getPose();
+          // hm: camera to camera transformation (cam1 / tcido in cam0 coordinates)
+          Sophus::SE3d T_0_1 =
+              calib.T_i_c[0].inverse() * T_i0_i1 * calib.T_i_c[tcido.cam_id];
+
+          // hm: we want the ray of the detected feature to be not parallel to the motion direction
+          if (T_0_1.translation().normalized().dot(p0_3d.head<3>().normalized()) > 0.85 ) continue;
+
+          // hm: require distance between the cameras to be large enough
+          if (T_0_1.translation().squaredNorm() < min_triang_distance2) continue;
+
+          Eigen::Vector4d p0_triangulated =
+              triangulate(p0_3d.head<3>(), p1_3d.head<3>(), T_0_1);
+
+          if(config.vio_debug){
+            if(tcidl.frame_id == tcido.frame_id){
+              std::cout << "same frame pairs" << std::endl;
+              std::cout << "p0_3d " << p0_3d.head<3>().transpose() << std::endl;
+              std::cout << "p1_3d " << p1_3d.head<3>().transpose() << std::endl;
+            }
+              
+            std::cout<< "initialise keyframe lm_id: " << lm_id << ", p0_triangulated: "<<p0_triangulated.transpose()<<std::endl;
+          }
+
+          // hm: distance criteria: the inverse distance is resonable
+          if (p0_triangulated.array().isFinite().all() &&
+              p0_triangulated[3] > 1e-5 && p0_triangulated[3] < 3.0) {
+            
+            // hm: if it is behind the camera throw away
+            if (p0_triangulated[2] < 0.0)
+            {
+              if (config.vio_debug)
+                std::cout << "point " << p0_triangulated.transpose() <<" is behind the camera, throw away" << std::endl;
+              continue;
+            }
+            // hm: defined in the landmark_database
+            KeypointPosition kpt_pos;
+            kpt_pos.kf_id = tcidl;
+            // hm: representation of 3d direction, using 2 numbers
+            kpt_pos.dir = StereographicParam<double>::project(p0_triangulated);
+            // hm: inverse distance
+            kpt_pos.id = p0_triangulated[3];
+            lmdb.addLandmark(lm_id, kpt_pos);
+
+            num_points_added++;
+            valid_kp = true;
+          }
+        }
+        // Yu:add all the observations to the newly added point
+        // if(config.vio_debug){
+        //     std::cout<<"valid_kp: "<<valid_kp<<std::endl;
+        // }
+        if (valid_kp) {
+          for (const auto& kv_obs : kp_obs) {
+            lmdb.addObservation(kv_obs.first, kv_obs.second);
+          }
         }
       }
+
+      num_points_kf[opt_flow_meas->t_ns] = num_points_added;
+    } else {
+      frames_after_kf++;
     }
-
-    num_points_kf[opt_flow_meas->t_ns] = num_points_added;
-  } else {
-    frames_after_kf++;
+    // hm: end of taking keyframe
+  }catch(const std::exception& e){
+    throw std::runtime_error("runtime error at take_kf == true");
   }
-  // hm: end of taking keyframe
+  
+  try{
+    optimize();
+  }catch(const std::exception& e){
+    throw std::runtime_error("runtime error at optimize()");
+  }
 
-  optimize();
-  marginalize(num_points_connected);
+  try{
+    marginalize(num_points_connected);
+  }catch(const std::exception& e){
+    throw std::runtime_error("runtime error at marginalize(num_points_connected)");
+  }
+
 
   if (out_state_queue) {
     PoseVelBiasStateWithLin p = frame_states.at(last_state_t_ns);
@@ -783,6 +818,7 @@ void KeypointVioEstimator::marginalize(
     auto kf_ids_all = kf_ids;
     std::set<int64_t> kfs_to_marg;
     // hm: there are key frames to be marginalised, also upon condition that maximum key frame is reached, AND there are new keyframes to be marginalised
+    // hm: !states_to_marg_vel_bias.empty() this condition means that a keyframe just transform from a state to a pose
     while (kf_ids.size() > max_kfs && !states_to_marg_vel_bias.empty()) {
       int64_t id_to_marg = -1;
 
@@ -835,42 +871,47 @@ void KeypointVioEstimator::marginalize(
       // }
 
       // hm: if all sufficiently overlapping, choose the one closest to the last key frame to remove
-      if (id_to_marg < 0) {
-        std::vector<int64_t> ids;
-        for (int64_t id : kf_ids) {
-          ids.push_back(id);
-        }
-
-        int64_t last_kf = *kf_ids.crbegin();
-        double min_score = std::numeric_limits<double>::max();
-        int64_t min_score_id = -1;
-
-        for (size_t i = 0; i < ids.size() - 2; i++) {
-          double denom = 0;
-          // hm: denominator: 'average' similarity between all key frames, to the keyframe of interest
-          for (size_t j = 0; j < ids.size() - 2; j++) {
-            denom += 1 / ((frame_poses.at(ids[i]).getPose().translation() -
-                           frame_poses.at(ids[j]).getPose().translation())
-                              .norm() +
-                          1e-5);
+      try{
+        if (id_to_marg < 0) {
+          std::vector<int64_t> ids;
+          for (int64_t id : kf_ids) {
+            ids.push_back(id);
           }
 
-          double score =
-              std::sqrt(
-                  (frame_poses.at(ids[i]).getPose().translation() -
-                   frame_states.at(last_kf).getState().T_w_i.translation())
-                      .norm()) *
-              denom;
+          int64_t last_kf = *kf_ids.crbegin();
+          double min_score = std::numeric_limits<double>::max();
+          int64_t min_score_id = -1;
 
-          // hm: do not remove the first ever keyframe using this criteria
-          if (score < min_score && frame_poses.at(ids[i]).getT_ns() != first_state_t_ns) {
-            min_score_id = ids[i];
-            min_score = score;
+          for (size_t i = 0; i < ids.size() - 2; i++) {
+            double denom = 0;
+            // hm: denominator: 'average' similarity between all key frames, to the keyframe of interest
+            for (size_t j = 0; j < ids.size() - 2; j++) {
+              denom += 1 / ((frame_poses.at(ids[i]).getPose().translation() -
+                            frame_poses.at(ids[j]).getPose().translation())
+                                .norm() +
+                            1e-5);
+            }
+
+            double score =
+                std::sqrt(
+                    (frame_poses.at(ids[i]).getPose().translation() -
+                    frame_states.at(last_kf).getState().T_w_i.translation())
+                        .norm()) *
+                denom;
+
+            // hm: do not remove the first ever keyframe using this criteria
+            if (score < min_score && frame_poses.at(ids[i]).getT_ns() != first_state_t_ns) {
+              min_score_id = ids[i];
+              min_score = score;
+            }
           }
-        }
 
-        id_to_marg = min_score_id;
+          id_to_marg = min_score_id;
+        }
+      }catch(const std::out_of_range& e){
+        throw std::runtime_error("out of range error at min_score_id calculation");
       }
+      
 
       kfs_to_marg.emplace(id_to_marg);
       // hm: poses_to_marg.emplace is called else where too
