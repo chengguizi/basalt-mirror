@@ -1,7 +1,7 @@
 {
     "value0": {
         "config.optical_flow_type": "frame_to_frame",
-        "config.optical_flow_detection_grid_size": 80,
+        "config.optical_flow_detection_grid_size": 120,
         "config.optical_flow_max_recovered_dist2": 5.0,
         "config.optical_flow_pattern": 51,
         "config.optical_flow_max_iterations": 7,
