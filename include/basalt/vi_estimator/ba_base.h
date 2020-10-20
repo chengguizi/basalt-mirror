@@ -179,10 +179,12 @@ class BundleAdjustmentBase {
     }
     res -= kpt_obs.pos;
 
+    // hm: jacobian of residual in pixels, against relative change
     if (d_res_d_xi) {
       *d_res_d_xi = Jp * d_point_d_xi;
     }
 
+    // hm: jacobian of residual in pixels, against uv bearing change, as well as inverse distance change?
     if (d_res_d_p) {
       Eigen::Matrix<double, 4, 3> Jpp;
       Jpp.setZero();
@@ -421,7 +423,7 @@ class BundleAdjustmentBase {
 
   inline void restore() {
     for (auto& kv : frame_states) kv.second.restore();
-    for (auto& kv : frame_poses) kv.second.backup();
+    for (auto& kv : frame_poses) kv.second.restore();
     lmdb.restore();
   }
 

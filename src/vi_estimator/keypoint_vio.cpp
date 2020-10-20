@@ -1279,6 +1279,7 @@ void KeypointVioEstimator::optimize() {
             lambda_vee *= 2;
 
             restore();
+            converged = false;
           } else {
             if (config.vio_debug)
               std::cout << "\t[ACCEPTED] lambda:" << lambda
