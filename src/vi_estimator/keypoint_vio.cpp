@@ -324,11 +324,14 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
         try{
           measure(curr_frame, meas);
         }catch (const std::out_of_range& e) {
+            std::cout << e.what() << std::endl;
             std::cout << "Out of Range error at measure()" << std::endl;
             throw std::runtime_error("out of range error");
         }catch (const std::runtime_error& e){
+            std::cout << e.what() << std::endl;
             throw std::runtime_error("runtime error at measure()");
         }catch(const std::exception& e){
+            std::cout << e.what() << std::endl;
             throw std::runtime_error("other error at measure()");
         }
         
@@ -336,6 +339,7 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
       }
 
     }catch(const std::exception& e){
+      std::cout << e.what() << std::endl;
       throw std::runtime_error("KeypointVioEstimator proc_func runtime error");
     }
     
@@ -426,6 +430,8 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
 
   // Make new residual for existing keypoints
   int connected0 = 0;
+  // hm: attempt to capture those obs points that could yield meaningful residual
+  int connected0_good = 0;
   std::map<int64_t, int> num_points_connected;
   std::unordered_set<int> unconnected_obs0;
 
@@ -467,7 +473,13 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
 
         // hm: if it is the first camera, then it is in all cameras
         // hm: only observations linked to a keyframe's landmark is consider connected
-        if (i == 0) connected0++;
+        if (i == 0) {
+          connected0++;
+
+          // hm: if the landmark is closer than 8 meters
+          if (lmdb.getLandmark(kpt_id).id > 0.125)
+            connected0_good++;
+        }
       } else {
         // hm: i==0 checks ensures that one keypoint is added at most once to the set
         if (i == 0) {
@@ -480,6 +492,7 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
     if (config.vio_debug) {
       std::cout << "cam " << i << " observation size = " <<  opt_flow_meas->observations[i].size() << std::endl;
       std::cout << "connected0 = " << connected0 << std::endl;
+      std::cout << "connected0_good = " << connected0_good  << std::endl;
       std::cout << "No. of landmarks in the database: " <<  lmdb.numLandmarks() << std::endl;
     }
     
@@ -490,9 +503,25 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
   // hm: check if keyframe is needed(
   // hm: criteria 1: landmarks in the database is low (indexed by current key frames), and there are available unconnected ones
   // hm: criteria 2: only a small ratio of landmarks are observed, time to marginalise old key frames!
-  if ( ( (lmdb.numLandmarks() < 12 && lmdb.numLandmarks() / (opt_flow_meas->num_good_ids + 1) < 0.4  ) || double(connected0) / (lmdb.numLandmarks() + 1) < config.vio_new_kf_keypoints_thresh)
-        && (frames_after_kf > config.vio_min_frames_after_kf))
+  if  (lmdb.numLandmarks() < 20 && lmdb.numLandmarks() / (opt_flow_meas->num_good_ids + 1) < 0.7  ){
+    std::cout  << "Creating KF because of low no. of landmarks: " << lmdb.numLandmarks() << ", no of good flow candidates: " << opt_flow_meas->num_good_ids << std::endl;
     take_kf = true;
+  }
+  
+  if (frames_after_kf > config.vio_min_frames_after_kf)
+  {
+    if ( double(connected0) / (lmdb.numLandmarks() + 1) < config.vio_new_kf_keypoints_thresh){
+      std::cout  << "Creating KF because of current frame's observed landmarks are low: " << connected0 << std::endl;
+      take_kf = true;
+    }
+
+    if (connected0_good < 5 && unconnected_obs0.size() > 10 ){
+      std::cout  << "Creating KF because of too few observed landmarks that are closed (8 meters): " << connected0_good << std::endl;
+      take_kf = true;
+    }
+  }
+  
+    
 
   static bool initialise_baseline = false;
   if (!initialise_baseline){
@@ -500,9 +529,13 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
 
     try {
       double moved_dist = (frame_states.at(last_state_t_ns).getState().T_w_i.translation()).norm();
-      if ( moved_dist > config.vio_min_triangulation_dist * 2 && frames_after_kf > config.vio_min_frames_after_kf){
+      static double triangulation_factor = 2;
+      if ( moved_dist > config.vio_min_triangulation_dist * triangulation_factor && frames_after_kf > config.vio_min_frames_after_kf){
+        std::cout  << "Creating KF because of baseline initialisation, factor " << triangulation_factor << std::endl;
         take_kf = true; // take a keyframe when the time is right after start;
-        initialise_baseline = true;
+        triangulation_factor *= 1.41;
+        if (frame_poses.size() >= max_kfs)
+          initialise_baseline = true;
       }
     }catch (const std::out_of_range& e) {
         throw std::runtime_error("Out of Range error at initialise_baseline");
@@ -520,11 +553,16 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
     try {
       const double max_dist_bt_keyframes = 8.0;
       double moved_dist = (frame_states.at(last_state_t_ns).getState().T_w_i.translation() - frame_poses.cbegin()->second.getPose().translation()).norm();
-      if (moved_dist > max_dist_bt_keyframes)
+      if (moved_dist > max_dist_bt_keyframes){
+        std::cout << "Creating KF because of moved distance in meters " << moved_dist << std::endl;
         take_kf = true;
+      }
+        
     }catch (const std::out_of_range& e){
+      std::cout << e.what() << std::endl;
       throw std::runtime_error("Out of Range error at max_dist_bt_keyframes checking");
     }catch(const std::exception& e){
+      std::cout << e.what() << std::endl;
       throw std::runtime_error("other exception at max_dist_bt_keyframes checking");
     }
   }
@@ -677,18 +715,21 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
     }
     // hm: end of taking keyframe
   }catch(const std::exception& e){
+    std::cout << e.what() << std::endl;
     throw std::runtime_error("runtime error at take_kf == true");
   }
   
   try{
     optimize();
   }catch(const std::exception& e){
+    std::cout << e.what() << std::endl;
     throw std::runtime_error("runtime error at optimize()");
   }
 
   try{
     marginalize(num_points_connected);
   }catch(const std::exception& e){
+    std::cout << e.what() << std::endl;
     throw std::runtime_error("runtime error at marginalize(num_points_connected)");
   }
 
@@ -878,7 +919,7 @@ void KeypointVioEstimator::marginalize(
             ids.push_back(id);
           }
 
-          int64_t last_kf = *kf_ids.crbegin();
+          // int64_t last_kf = *kf_ids.crbegin();
           double min_score = std::numeric_limits<double>::max();
           int64_t min_score_id = -1;
 
@@ -895,7 +936,7 @@ void KeypointVioEstimator::marginalize(
             double score =
                 std::sqrt(
                     (frame_poses.at(ids[i]).getPose().translation() -
-                    frame_states.at(last_kf).getState().T_w_i.translation())
+                    frame_poses.crbegin()->second.getPose().translation())
                         .norm()) *
                 denom;
 
