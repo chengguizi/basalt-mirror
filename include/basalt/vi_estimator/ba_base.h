@@ -82,6 +82,7 @@ class BundleAdjustmentBase {
       error = 0;
     }
 
+    // hm: inverting Hll element, the key should be the keypoint number (landmark number)
     void invert_keypoint_hessians() {
       for (auto& kv : Hll) {
         Eigen::Matrix3d Hll_inv;
@@ -91,7 +92,7 @@ class BundleAdjustmentBase {
       }
     }
 
-    // hm: respect to keypoints
+    // hm: respect to keypoints (l means landmark)
     Eigen::aligned_unordered_map<int, Eigen::Matrix3d> Hll;
     Eigen::aligned_unordered_map<int, Eigen::Vector3d> bl;
     Eigen::aligned_unordered_map<int, std::vector<std::pair<size_t, size_t>>>

@@ -91,6 +91,7 @@ void KeypointVioEstimator::linearizeAbsIMU(
       abs_H.block<9, 9>(end_idx, end_idx) +=
           d_res_d_end.transpose() * kv.second.get_cov_inv() * d_res_d_end;
 
+        // hm: here b term omit the negative sign, as the increment is subtracted away in the final update. b = J'r there
       abs_b.segment<9>(start_idx) +=
           d_res_d_start.transpose() * kv.second.get_cov_inv() * res;
       abs_b.segment<9>(end_idx) +=
@@ -141,6 +142,7 @@ void KeypointVioEstimator::linearizeAbsIMU(
         abs_H.block<3, 3>(start_idx + 9, end_idx + 9) -=
             gyro_bias_weight_dt.asDiagonal();
 
+        // hm: gradient against starting bias is positive, and vice versa
         abs_b.segment<3>(start_idx + 9) +=
             gyro_bias_weight_dt.asDiagonal() * res_bg;
         abs_b.segment<3>(end_idx + 9) -=
@@ -212,6 +214,7 @@ void KeypointVioEstimator::computeImuError(
 
       double dt = kv.second.get_dt_ns() * 1e-9;
       {
+        // hm: gyro_bias_weight here is the inverse of variance. the longer the time in sampling, the drift should be more, hence less the confidence
         Eigen::Vector3d gyro_bias_weight_dt = gyro_bias_weight / dt;
         Eigen::Vector3d res_bg =
             start_state.getState().bias_gyro - end_state.getState().bias_gyro;

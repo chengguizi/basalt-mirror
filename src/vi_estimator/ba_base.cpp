@@ -334,6 +334,8 @@ void BundleAdjustmentBase::linearizeHelper(
                         }
 
                         // hm: since the loss function is formulated as least squares, the Hessian is done as Jt*J
+                        // hm: here, Hll is not the information matrix, it is the hessian matrix.
+                        // it will be inverted soon, by invert_keypoint_hessians()
                         rld.Hll[kpt_obs.kpt_id] +=
                             obs_weight * d_res_d_p.transpose() * d_res_d_p;
                         rld.bl[kpt_obs.kpt_id] +=
@@ -423,14 +425,16 @@ void BundleAdjustmentBase::linearizeRel(const RelLinData& rld,
     const FrameRelLinData& frld = rld.Hpppl.at(i);
 
     // hm: respect to relative pose
+    // hm: here, it starts with zeros in H and b
     H.block<POSE_SIZE, POSE_SIZE>(POSE_SIZE * i, POSE_SIZE * i) += frld.Hpp;
     b.segment<POSE_SIZE>(POSE_SIZE * i) += frld.bp;
 
-    // hm: respect to landmark observations
+    // hm: respect to landmark observations, we want to marginalise those
     for (size_t j = 0; j < frld.lm_id.size(); j++) {
       Eigen::Matrix<double, POSE_SIZE, 3> H_pl_H_ll_inv;
       int lm_id = frld.lm_id[j];
 
+      // hm: here Hll is already inverted to be the information matrix, hence H_ll_inv
       H_pl_H_ll_inv = frld.Hpl[j] * rld.Hll.at(lm_id);
       b.segment<POSE_SIZE>(POSE_SIZE * i) -= H_pl_H_ll_inv * rld.bl.at(lm_id);
 

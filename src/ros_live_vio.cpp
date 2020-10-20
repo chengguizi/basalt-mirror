@@ -248,9 +248,9 @@ int main(int argc, char** argv) {
             abort();
           }
 
-          // hm: detect big change in estimated position accross frames, > 1.5m accross frame
-          if ( (vio_t_w_i.back() - T_w_i.translation()).norm() > 1.5){
-            std::cout << "detect translation change > than 1.5 " << (vio_t_w_i.back() - T_w_i.translation()).norm() << std::endl;
+          // hm: detect big change in estimated position accross frames, > 4m accross frame
+          if ( (vio_t_w_i.back() - T_w_i.translation()).norm() > 3){
+            std::cout << "detect translation change > than 3:  " << (vio_t_w_i.back() - T_w_i.translation()).norm() << std::endl;
             abort();
           }
         }else{
@@ -570,19 +570,22 @@ void draw_image_overlay(pangolin::View& v, size_t cam_id) {
           }
 
         //hm: set the coloring to be constant
-        min_id = 0.002; // blue color
-        max_id = 1; // red color
+        // min_id = 0.002; // blue color
+        // max_id = 1; // red color
+
+        const double blue_id = 0.002; // blue color
+        const double red_id = 0.5; // red color  
 
         for (const auto& c : points) {
           const float radius = 6.5; 
 
           float r, g, b;
-          double scale = c[2] - min_id;
+          double scale = c[2] - blue_id;
           if (scale < 0.0)
             scale = 0;
-          else if (c[2] > max_id)
-            scale = max_id - min_id;
-          getcolor(scale , max_id - min_id, b, g, r);
+          else if (c[2] > red_id)
+            scale = red_id - blue_id;
+          getcolor(scale , red_id - blue_id, b, g, r);
           glColor3f(r, g, b);
 
           pangolin::glDrawCirclePerimeter(c[0], c[1], radius);
