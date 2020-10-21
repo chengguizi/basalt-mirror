@@ -503,13 +503,14 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
   // hm: check if keyframe is needed(
   // hm: criteria 1: landmarks in the database is low (indexed by current key frames), and there are available unconnected ones
   // hm: criteria 2: only a small ratio of landmarks are observed, time to marginalise old key frames!
-  if  (lmdb.numLandmarks() < 20 && lmdb.numLandmarks() / (opt_flow_meas->num_good_ids + 1) < 0.7  ){
-    std::cout  << "Creating KF because of low no. of landmarks: " << lmdb.numLandmarks() << ", no of good flow candidates: " << opt_flow_meas->num_good_ids << std::endl;
-    take_kf = true;
-  }
-  
   if (frames_after_kf > config.vio_min_frames_after_kf)
   {
+
+    if  (lmdb.numLandmarks() < 20 && lmdb.numLandmarks() / (opt_flow_meas->num_good_ids + 1) < 0.3  ){
+      std::cout  << "Creating KF because of low no. of landmarks: " << lmdb.numLandmarks() << ", no of good flow candidates: " << opt_flow_meas->num_good_ids << std::endl;
+      take_kf = true;
+    }
+
     if ( double(connected0) / (lmdb.numLandmarks() + 1) < config.vio_new_kf_keypoints_thresh){
       std::cout  << "Creating KF because of current frame's observed landmarks are low: " << connected0 << std::endl;
       take_kf = true;
