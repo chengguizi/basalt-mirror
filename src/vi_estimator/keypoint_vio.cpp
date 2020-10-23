@@ -917,17 +917,19 @@ void KeypointVioEstimator::marginalize(
         if (id_to_marg < 0) {
           std::vector<int64_t> ids;
           for (int64_t id : kf_ids) {
-            ids.push_back(id);
+            // hm: assure all ids are marginalised from states to poses
+            if (frame_poses.count(id))
+              ids.push_back(id);
           }
 
           // int64_t last_kf = *kf_ids.crbegin();
           double min_score = std::numeric_limits<double>::max();
           int64_t min_score_id = -1;
 
-          for (size_t i = 0; i < ids.size() - 2; i++) {
+          for (size_t i = 0; i < ids.size() - 1; i++) {
             double denom = 0;
             // hm: denominator: 'average' similarity between all key frames, to the keyframe of interest
-            for (size_t j = 0; j < ids.size() - 2; j++) {
+            for (size_t j = 0; j < ids.size() - 1; j++) {
               denom += 1 / ((frame_poses.at(ids[i]).getPose().translation() -
                             frame_poses.at(ids[j]).getPose().translation())
                                 .norm() +
