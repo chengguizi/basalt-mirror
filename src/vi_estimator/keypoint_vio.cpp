@@ -476,8 +476,8 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
         if (i == 0) {
           connected0++;
 
-          // hm: if the landmark is closer than 8 meters
-          if (lmdb.getLandmark(kpt_id).id > 0.125)
+          // hm: if the landmark is closer than 20 meters
+          if (lmdb.getLandmark(kpt_id).id > 0.05)
             connected0_good++;
         }
       } else {
@@ -505,21 +505,46 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
   // hm: criteria 2: only a small ratio of landmarks are observed, time to marginalise old key frames!
   if (frames_after_kf > config.vio_min_frames_after_kf)
   {
-
-    if  (lmdb.numLandmarks() < 20 && lmdb.numLandmarks() / (opt_flow_meas->num_good_ids + 1) < 0.3  ){
+    static size_t landmark_thres = 16;
+    if  (lmdb.numLandmarks() < landmark_thres ){ // && lmdb.numLandmarks() / (opt_flow_meas->num_good_ids + 1) < 0.3
+      
       std::cout  << "Creating KF because of low no. of landmarks: " << lmdb.numLandmarks() << ", no of good flow candidates: " << opt_flow_meas->num_good_ids << std::endl;
       take_kf = true;
+      if (landmark_thres > 4)
+        landmark_thres /= 2;
+    }else if(landmark_thres < 16){
+      landmark_thres *= 2;
     }
+      
 
-    if ( double(connected0) / (lmdb.numLandmarks() + 1) < config.vio_new_kf_keypoints_thresh){
+    if ( (connected0_good < 25) && double(connected0) / (lmdb.numLandmarks() + 1) < config.vio_new_kf_keypoints_thresh){
       std::cout  << "Creating KF because of current frame's observed landmarks are low: " << connected0 << std::endl;
       take_kf = true;
     }
 
-    if (connected0_good < 5 && unconnected_obs0.size() > 10 ){
-      std::cout  << "Creating KF because of too few observed landmarks that are closed (8 meters): " << connected0_good << std::endl;
-      take_kf = true;
+    static bool bad_mode = false;
+    if (connected0_good < 3){
+
+      static Eigen::Vector3d last_pos;
+      if (opt_flow_meas->num_good_ids > 30){
+        Eigen::Vector3d curr_pos = frame_states.at(last_state_t_ns).getState().T_w_i.translation();
+        if (!bad_mode){
+          // first enter low connected near points mode
+          bad_mode = true;
+          last_pos = curr_pos;
+          std::cout  << "Creating KF because of too few observed landmarks that are closed (20 meters): " << connected0_good << std::endl;
+          take_kf = true;
+        }else if((curr_pos - last_pos).norm() > 1){
+          last_pos = curr_pos;
+          std::cout  << "Creating KF because of too few observed landmarks that are closed (20 meters) - retry: " << connected0_good << std::endl;
+          take_kf = true;
+        }
+      }
+
+    }else{
+        bad_mode = false;
     }
+    
   }
   
     
@@ -553,7 +578,7 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
     // hm: check if we have move sufficiently far    
     try {
       const double max_dist_bt_keyframes = 8.0;
-      double moved_dist = (frame_states.at(last_state_t_ns).getState().T_w_i.translation() - frame_poses.cbegin()->second.getPose().translation()).norm();
+      double moved_dist = (frame_states.at(last_state_t_ns).getState().T_w_i.translation() - frame_poses.crbegin()->second.getPose().translation()).norm();
       if (moved_dist > max_dist_bt_keyframes){
         std::cout << "Creating KF because of moved distance in meters " << moved_dist << std::endl;
         take_kf = true;
