@@ -502,11 +502,11 @@ void BundleAdjustmentBase::filterOutliers(double outlier_threshold,
   std::map<int, std::vector<std::pair<TimeCamId, double>>> outliers;
   computeError(error, &outliers, outlier_threshold);
 
-  if (outliers.size()){
-    std::cout << "============================================" <<
-    std::endl; std::cout << "Num landmarks: " << lmdb.numLandmarks() << " with outliners"
-             << outliers.size() << std::endl;
-  }
+  // if (outliers.size()){
+  //   std::cout << "============================================" <<
+  //   std::endl; std::cout << "Num landmarks: " << lmdb.numLandmarks() << " with outliners"
+  //            << outliers.size() << std::endl;
+  // }
    
 
   // hm: iterate through all outlier keypoint (landmark)
@@ -520,18 +520,18 @@ void BundleAdjustmentBase::filterOutliers(double outlier_threshold,
     // remove those points that have observation points that are too few
     if (num_obs - num_outliers < min_num_obs) remove = true;
 
-       std::cout << "\tlm_id: " << kv.first << " num_obs: " << num_obs
-                 << " outliers: " << num_outliers << " [";
+      //  std::cout << "\tlm_id: " << kv.first << " num_obs: " << num_obs
+      //            << " outliers: " << num_outliers << " [";
 
     // hm: iterate through the camid frames
     for (const auto& kv2 : kv.second) {
       // hm: remove landmarks that are have host projections going off
       if (kv2.second == -2) remove = true;
 
-           std::cout << kv2.second << ", ";
+          //  std::cout << kv2.second << ", ";
     }
 
-       std::cout << "] " ;
+      //  std::cout << "] " ;
 
     // in all case, remove observation, if the leftover observation is too small, or the landmark themselves are off, then remove the landmark for all
     if (remove) {
