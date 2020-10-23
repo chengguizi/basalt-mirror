@@ -575,10 +575,18 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
 
     assert(kf_ids.size() > 0);
 
+    basalt::FrameId last_kf = *kf_ids.crbegin();
+
+    Eigen::Vector3d trans;
+    if (frame_states.count(last_kf))
+      trans = frame_states.at(last_kf).getState().T_w_i.translation();
+    else
+      trans = frame_poses.at(last_kf).getPose().translation();
+
     // hm: check if we have move sufficiently far    
     try {
       const double max_dist_bt_keyframes = 8.0;
-      double moved_dist = (frame_states.at(last_state_t_ns).getState().T_w_i.translation() - frame_poses.crbegin()->second.getPose().translation()).norm();
+      double moved_dist = (frame_states.at(last_state_t_ns).getState().T_w_i.translation() - trans).norm();
       if (moved_dist > max_dist_bt_keyframes){
         std::cout << "Creating KF because of moved distance in meters " << moved_dist << std::endl;
         take_kf = true;
