@@ -512,7 +512,7 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
       take_kf = true;
       if (landmark_thres > 4)
         landmark_thres /= 2;
-    }else if(landmark_thres < 16){
+    }else if(lmdb.numLandmarks() > 16 && landmark_thres < 16){
       landmark_thres *= 2;
     }
       
