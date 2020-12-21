@@ -95,6 +95,33 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
 
     assert(calib.intrinsics.size() == 2);
 
+    // hm: initialise the radial grid in pixel unit
+    std::cout << "Optical flow: generating radial grid: 60, 100, 170 degree fov..." << std::endl;
+    cell_radius_px_squared.resize(calib.intrinsics.size());
+    optical_centre.resize(calib.intrinsics.size());
+
+    for (size_t i=0; i < calib.intrinsics.size(); i++ ){
+      std::vector<bool> proj_success;
+      Eigen::aligned_vector<Eigen::Vector2f> proj;
+      Eigen::aligned_vector<Eigen::Vector4f> p3d;
+      p3d.push_back({0,0,1,0}); // optical centre
+      p3d.push_back({1,0,1.73,0}); // fov of 60 degree
+      p3d.push_back({1,0,0.58,0}); // fov of 120 degree
+      p3d.push_back({1,0,0.088,0}); // fov of 170 degree
+
+      this->calib.intrinsics[i].project(p3d, proj, proj_success);
+
+      optical_centre[i] = proj[0];
+
+      // first entry store the optical centre
+      for (size_t j = 1; j < proj.size(); j++){
+        int distance = proj[j][0] - proj[0][0];
+        cell_radius_px_squared[i].push_back(distance * distance);
+        std::cout << "cell_radius_px[" << i << "][" << j << "] = " << distance << std::endl;
+      }
+      
+    }
+
     if (calib.intrinsics.size() > 1) {
       try{
         Eigen::Matrix4d Ed;
@@ -119,6 +146,43 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
   }
 
   ~FrameToFrameOpticalFlow() { processing_thread->join(); }
+
+  Eigen::Vector2i getCellFromTranslation(Eigen::Vector2f trans, size_t cam_id){
+
+
+    const float pi = std::acos(-1.0); 
+
+    // determine the bin number
+    // bin starts from North direction (0 degree), and spans 45 degrees
+
+    float bearing = std::atan2(trans[1] - optical_centre[cam_id][1], trans[0] - optical_centre[cam_id][0]);
+
+
+    int bin = (bearing - (-pi)) / (2 * pi/ NUM_BIN);
+
+    assert (bin >= 0);
+    assert (bin <= NUM_BIN);
+
+    const auto& squared_norm = (trans - optical_centre[cam_id]).squaredNorm();
+
+    int ring;
+
+    // within 60 degree fov
+    if (squared_norm < cell_radius_px_squared[cam_id][0]){
+      ring = 0;
+    // within 100 degree fov
+    } else if (squared_norm < cell_radius_px_squared[cam_id][1]){
+      ring = 1;
+    // within 170 degree fov
+    }else if (squared_norm < cell_radius_px_squared[cam_id][2]){
+      ring = 2;
+    }else
+    {
+      ring = 3; // should not be here, if fov is smaller than 170
+    }
+
+    return {ring,bin};
+  }
 
   void processingLoop() {
     OpticalFlowInput::Ptr input_ptr;
@@ -160,6 +224,7 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
       transforms.reset(new OpticalFlowResult);
       // hm: size depends on the number of cameras
       transforms->observations.resize(calib.intrinsics.size());
+      transforms->obs_cell.resize(calib.intrinsics.size());
       transforms->t_ns = t_ns;
 
       pyramid.reset(new std::vector<basalt::ManagedImagePyr<u_int16_t>>);
@@ -206,6 +271,7 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
       OpticalFlowResult::Ptr new_transforms;
       new_transforms.reset(new OpticalFlowResult);
       new_transforms->observations.resize(calib.intrinsics.size());
+      new_transforms->obs_cell.resize(calib.intrinsics.size());
       new_transforms->t_ns = t_ns;
 
       // hm: perform feature tracking for each camera separately
@@ -290,6 +356,26 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
       }
 
     }
+
+    // hm: generate statistics for the tracked points in the radial grid
+    {
+      transforms->cells.resize(calib.intrinsics.size());
+
+      for (size_t i = 0; i < calib.intrinsics.size(); i++) {
+        
+        transforms->cells.at(i).setZero(4, NUM_BIN); // central ring, middle ring, and outer ring. each split into 8 sections by angle of bearings
+        for(const auto& kv: transforms->observations[i]){
+
+          Eigen::Vector2i cell_idx = getCellFromTranslation(kv.second.translation(), i);
+
+          // std::cout << cell_idx.transpose() << " based on trans" << kv.second.translation().transpose() << std::endl;
+
+          transforms->cells.at(i)(cell_idx[0], cell_idx[1])++;
+          transforms->obs_cell.at(i)[kv.first] = cell_idx;
+        }
+      }
+    }
+
 
     if (output_queue && frame_counter % config.optical_flow_skip_frames == 0) {
 
@@ -737,6 +823,11 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
   Matrix4 E;
 
   std::shared_ptr<std::thread> processing_thread;
+
+  // hm: to be initialised in the constructor, the rings of cells for the use of keyframe creation criterion later
+  std::vector<std::vector<int>> cell_radius_px_squared;
+  std::vector<Eigen::Vector2f> optical_centre;
+  static constexpr int NUM_BIN = 8;
 };
 
 }  // namespace basalt

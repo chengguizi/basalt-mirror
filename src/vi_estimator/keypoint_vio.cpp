@@ -163,6 +163,11 @@ void KeypointVioEstimator::initialize(const Eigen::Vector3d& bg,
           break;
         }
 
+        if (curr_frame->pre_last_keypoint_id == 0){
+          std::cout << "optical flow not stabilised yet, continue waiting..." << std::endl;
+          continue;
+        }
+
         // Correct camera time offset
         curr_frame->t_ns += calib.cam_time_offset_ns;
         int imu_num{0};
@@ -373,6 +378,8 @@ void KeypointVioEstimator::addVisionToQueue(
 // hm: measure takes in the current frame flow result, with the pre-integration results (previous frame -> current frame)
 bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
                                    const IntegratedImuMeasurement::Ptr& meas) {
+  
+  static long long take_kf_count = 0;
 
   //// Process IMU readings
   if (meas.get()) {
@@ -544,6 +551,66 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
     }else{
         bad_mode = false;
     }
+
+
+    // hm: if most keypoints are clustered in some radial grid, do keyframing too
+    if (!take_kf)
+    {
+      
+
+      // std::vector<basalt::KeypointPosition> kp_pos_vec
+
+      for (size_t i = 0; i < opt_flow_meas->observations.size(); i++) {
+
+        int num_centre_ring = opt_flow_meas->cells.at(i).row(0).sum();
+        int num_middle_ring = opt_flow_meas->cells.at(i).row(1).sum();
+        int num_outter_ring = opt_flow_meas->cells.at(i).row(2).sum();
+        int num_none_ring = opt_flow_meas->cells.at(i).row(3).sum();
+
+        if(config.vio_debug)
+          std::cout << i << ": " << num_centre_ring << " " << num_middle_ring << " " << num_outter_ring << " " << num_none_ring << std::endl;
+
+        Eigen::MatrixXi cells_curr;
+        constexpr int NUM_BIN = 8;
+        cells_curr.setZero(4, NUM_BIN);
+
+        // iterate through all observations that are currently the landmarks
+        for (auto& obs : opt_flow_meas->observations.at(i)){
+          if (lmdb.landmarkExists(obs.first)){
+
+            // retrive the cell number using the keypoint id
+            Eigen::Vector2i cell = opt_flow_meas->obs_cell.at(i)[obs.first];
+            cells_curr(cell[0], cell[1])++;
+          }
+        }
+
+        /// debug for cells_curr
+        {
+          int num_centre_ring_curr = cells_curr.row(0).sum();
+          int num_middle_ring_curr = cells_curr.row(1).sum();
+          int num_outter_ring_curr = cells_curr.row(2).sum();
+          int num_none_ring_curr = cells_curr.row(3).sum();
+
+          if(config.vio_debug)
+            std::cout << i << " current: " << num_centre_ring_curr << " " << num_middle_ring_curr << " " << num_outter_ring_curr << " " << num_none_ring_curr << std::endl;
+
+          if (num_centre_ring_curr < num_centre_ring * 0.2 && num_centre_ring > 10 ){
+            std::cout << "Creating KF because of centre ring has low number of tracked landmarks " << num_centre_ring_curr << std::endl;
+            take_kf = true;
+            break;
+          }else if (num_middle_ring_curr < num_middle_ring * 0.2 && num_middle_ring > 10 ){
+            std::cout << "Creating KF because of middle ring has low number of tracked landmarks " << num_middle_ring_curr << std::endl;
+            take_kf = true;
+            break;
+          }else if (num_outter_ring_curr < num_outter_ring * 0.2 && num_outter_ring > 10 ){
+            std::cout << "Creating KF because of outter ring has low number of tracked landmarks " << num_outter_ring_curr << std::endl;
+            take_kf = true;
+            break;
+          }
+        }
+
+      }
+    }
     
   }
   
@@ -560,7 +627,7 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
         std::cout  << "Creating KF because of baseline initialisation, factor " << triangulation_factor << std::endl;
         take_kf = true; // take a keyframe when the time is right after start;
         triangulation_factor *= 1.41;
-        if (frame_poses.size() >= max_kfs)
+        if (take_kf_count > 16)
           initialise_baseline = true;
       }
     }catch (const std::out_of_range& e) {
@@ -601,7 +668,7 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
     }
   }
 
-
+  
   //// hm: step in initialising a keyframes:
   // hm: 1. the key frame id is defined as the current frame nanosecond timestamp
   // hm: 2. each landmark id is defined as corresponding keypoint id (unique)
@@ -613,6 +680,8 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
   try{
     if (take_kf) {
         std::cout << "Taking keyframe now " << double(last_state_t_ns) / 1e9 << ", connected = " << connected0 << ", unconnected = " << unconnected_obs0.size() << ", landmarks = " << lmdb.numLandmarks() << std::endl;
+
+      take_kf_count++;
 
       // Triangulate new points from stereo and make keyframe for camera 0
       take_kf = false;
@@ -744,6 +813,7 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
       }
 
       num_points_kf[opt_flow_meas->t_ns] = num_points_added;
+      std::cout << "added " << num_points_added << " points." << std::endl;
     } else {
       frames_after_kf++;
     }

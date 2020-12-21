@@ -62,13 +62,18 @@ struct OpticalFlowResult {
   using Ptr = std::shared_ptr<OpticalFlowResult>;
 
   int64_t t_ns;
+  std::vector<Eigen::MatrixXi> cells;
 
   KeypointId last_keypoint_id;
   KeypointId pre_last_keypoint_id;
   int64_t num_good_ids;
 
+  // vector structure for different cameras
   std::vector<Eigen::aligned_map<KeypointId, Eigen::AffineCompact2f>>
       observations;
+
+  // hm: store the current observations cell info
+  std::vector<Eigen::aligned_map<KeypointId, Eigen::Vector2i>> obs_cell;
 
   OpticalFlowInput::Ptr input_images;
 };
