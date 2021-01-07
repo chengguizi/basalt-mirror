@@ -219,9 +219,9 @@ if (TBB_INTERFACE_VERSION LESS 11004)
 endif()
 
 find_package(OpenCV REQUIRED core imgproc calib3d highgui)
-include_directories(${OpenCV_INCLUDE_DIR})
-message(STATUS "Found OpenCV headers in: ${OpenCV_INCLUDE_DIR}")
-message(STATUS "Found OpenCV_LIBS: ${OpenCV_LIBS}")
+include_directories(${OpenCV_INCLUDE_DIRS})
+message("Found OpenCV headers in: ${OpenCV_INCLUDE_DIRS}")
+message("Found OpenCV_LIBS: ${OpenCV_LIBS}")
 
 find_package(catkin REQUIRED COMPONENTS
     roscpp
