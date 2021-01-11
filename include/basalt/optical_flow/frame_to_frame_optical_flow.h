@@ -162,6 +162,10 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
     assert (bin >= 0);
     assert (bin <= NUM_BIN);
 
+    // corner case
+    if (bin == NUM_BIN)
+      bin = 0;
+
     const auto& squared_norm = (trans - optical_centre[cam_id]).squaredNorm();
 
     int ring;
