@@ -463,9 +463,9 @@ int main(int argc, char** argv) {
           std::bind(&draw_image_overlay, std::placeholders::_1, idx);
     }
 
-    Eigen::Vector3d cam_p(0.5, -2, -2);
+    Eigen::Vector3d cam_p(2, -8, -8);
     cam_p = vio->getT_w_i_init().so3() * calib.T_i_c[0].so3() * cam_p;
-    cam_p[2] = 1;
+    cam_p[2] = 4;
 
     pangolin::OpenGlRenderState camera(
         pangolin::ProjectionMatrix(640, 480, 400, 400, 320, 240, 0.001, 10000),
