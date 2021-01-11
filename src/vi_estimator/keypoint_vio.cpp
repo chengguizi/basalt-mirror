@@ -507,6 +507,15 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
 
   // assert(effective_obs_size == opt_flow_meas->num_good_ids);
 
+  ////////////////
+  /// Logic to decide take_kf
+  /////////////////////
+
+  
+  
+
+  Eigen::Vector3d curr_pos = frame_states.at(last_state_t_ns).getState().T_w_i.translation();
+
   // hm: check if keyframe is needed(
   // hm: criteria 1: landmarks in the database is low (indexed by current key frames), and there are available unconnected ones
   // hm: criteria 2: only a small ratio of landmarks are observed, time to marginalise old key frames!
@@ -529,34 +538,38 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
       take_kf = true;
     }
 
-    static bool bad_mode = false;
-    if (connected0_good < 3){
+    {
+      static bool bad_mode = false;
+      if (connected0_good < 3){
 
-      static Eigen::Vector3d last_pos;
-      if (opt_flow_meas->num_good_ids > 30){
-        Eigen::Vector3d curr_pos = frame_states.at(last_state_t_ns).getState().T_w_i.translation();
-        if (!bad_mode){
-          // first enter low connected near points mode
-          bad_mode = true;
-          last_pos = curr_pos;
-          std::cout  << "Creating KF because of too few observed landmarks that are closed (20 meters): " << connected0_good << std::endl;
-          take_kf = true;
-        }else if((curr_pos - last_pos).norm() > 1){
-          last_pos = curr_pos;
-          std::cout  << "Creating KF because of too few observed landmarks that are closed (20 meters) - retry: " << connected0_good << std::endl;
-          take_kf = true;
+        static Eigen::Vector3d last_pos;
+        if (opt_flow_meas->num_good_ids > 30){
+          
+          if (!bad_mode){
+            // first enter low connected near points mode
+            bad_mode = true;
+            last_pos = curr_pos;
+            std::cout  << "Creating KF because of too few observed landmarks that are closed (20 meters): " << connected0_good << std::endl;
+            take_kf = true;
+          }else if((curr_pos - last_pos).norm() > 1){
+            last_pos = curr_pos;
+            std::cout  << "Creating KF because of too few observed landmarks that are closed (20 meters) - retry: " << connected0_good << std::endl;
+            take_kf = true;
+          }
         }
-      }
 
-    }else{
-        bad_mode = false;
+      }else{
+          bad_mode = false;
+      }
     }
+    
 
 
     // hm: if most keypoints are clustered in some radial grid, do keyframing too
     if (!take_kf)
     {
-      
+      static bool bad_mode = false;
+      static Eigen::Vector3d last_pos;
 
       // std::vector<basalt::KeypointPosition> kp_pos_vec
 
@@ -572,6 +585,7 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
 
         Eigen::MatrixXi cells_curr;
         constexpr int NUM_BIN = 8;
+        // 4 sections, centre, middle, outter, none
         cells_curr.setZero(4, NUM_BIN);
 
         // iterate through all observations that are currently the landmarks
@@ -595,21 +609,39 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
             std::cout << i << " current: " << num_centre_ring_curr << " " << num_middle_ring_curr << " " << num_outter_ring_curr << " " << num_none_ring_curr << std::endl;
 
           if (num_centre_ring_curr < num_centre_ring * 0.2 && num_centre_ring > 10 ){
-            std::cout << "Creating KF because of centre ring has low number of tracked landmarks " << num_centre_ring_curr << std::endl;
+            // std::cout << "Creating KF because of centre ring has low number of tracked landmarks " << num_centre_ring_curr << ", total " << num_centre_ring << std::endl;
             take_kf = true;
             break;
           }else if (num_middle_ring_curr < num_middle_ring * 0.2 && num_middle_ring > 10 ){
-            std::cout << "Creating KF because of middle ring has low number of tracked landmarks " << num_middle_ring_curr << std::endl;
+            // std::cout << "Creating KF because of middle ring has low number of tracked landmarks " << num_middle_ring_curr << ", total " << num_middle_ring << std::endl;
             take_kf = true;
             break;
           }else if (num_outter_ring_curr < num_outter_ring * 0.2 && num_outter_ring > 10 ){
-            std::cout << "Creating KF because of outter ring has low number of tracked landmarks " << num_outter_ring_curr << std::endl;
+            // std::cout << "Creating KF because of outter ring has low number of tracked landmarks " << num_outter_ring_curr << ", total " << num_outter_ring << std::endl;
             take_kf = true;
             break;
           }
         }
 
-      }
+      } // end for loop
+
+      if (take_kf){
+        if (!bad_mode){
+          bad_mode = true;
+          last_pos = curr_pos;
+          std::cout << "Creating KF because of outter ring has low number of tracked landmarks in rings" << std::endl;
+        }else if((curr_pos - last_pos).norm() > 1){
+          // already attempted before, delay retry until 1 meter
+          last_pos = curr_pos;
+          std::cout << "Creating KF because of outter ring has low number of tracked landmarks in rings - retry" << std::endl;
+        }else{
+          // std::cout << "reject keyframe taking cos the movement is smaller than 1 meter" << std::endl;
+          take_kf = false;
+        }
+          
+
+      }else
+        bad_mode = false;
     }
     
   }
