@@ -398,15 +398,14 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
                        next_state);
     
     if (config.vio_debug) {
-      Eigen::AngleAxisd angleAxis(next_state.T_w_i.unit_quaternion());
       std::cout<< "vel_w_i: "<<next_state.vel_w_i.transpose()<<std::endl;
-      std::cout << "T: " << next_state.T_w_i.translation().transpose()<< std::endl;
-      std::cout << "AxisAngle: " << angleAxis.angle() * 57.3 << ", "<<angleAxis.axis().transpose()<< std::endl<<std::endl;
+      std::cout << "translation: " << next_state.T_w_i.translation().transpose()<< std::endl;
+      std::cout << "q: " << next_state.T_w_i.unit_quaternion().coeffs().transpose()<< std::endl<<std::endl;
    
       PoseVelState delta_state = meas->getDeltaState();
       Eigen::AngleAxisd angleAxisDelta(delta_state.T_w_i.unit_quaternion());
       std::cout<< "delta_state_vel_w_i: "<<delta_state.vel_w_i.transpose()<<std::endl;
-      std::cout << "delta_state_T: " << delta_state.T_w_i.translation().transpose()<< std::endl;
+      std::cout << "delta_state_translation: " << delta_state.T_w_i.translation().transpose()<< std::endl;
       std::cout << "delta_state_AxisAngle: " << angleAxisDelta.angle() * 57.3 << ", "<<angleAxisDelta.axis().transpose()<< std::endl<<std::endl;
     }
 
@@ -511,7 +510,7 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
   /// Logic to decide take_kf
   /////////////////////
 
-  
+  static bool initialise_baseline = false;
   
 
   Eigen::Vector3d curr_pos = frame_states.at(last_state_t_ns).getState().T_w_i.translation();
@@ -648,7 +647,7 @@ bool KeypointVioEstimator::measure(const OpticalFlowResult::Ptr& opt_flow_meas,
   
     
 
-  static bool initialise_baseline = false;
+  
   if (!initialise_baseline){
     // latest state translation to the first pose position
 

@@ -585,13 +585,13 @@ class FrameToFrameOpticalFlow : public OpticalFlowBase {
     tbb::parallel_for(range, compute_func);
     // compute_func(range);
     //Yu: try to track the low left to right track ratio reason
-    if(config.vio_debug){
-        std::cout<<num_points<<" total features from cam0 to track. "
-        <<" step1 valid: "<< "to do"
-        <<" step2 valid: "<< float(cntValidTrack)/num_points
-        <<" step3 valid: "<< float(cntValidLnR)/cntValidTrack<<std::endl;
+    // if(config.vio_debug){
+    //     std::cout<<num_points<<" total features from cam0 to track. "
+    //     <<" step1 valid: "<< "to do"
+    //     <<" step2 valid: "<< float(cntValidTrack)/num_points
+    //     <<" step3 valid: "<< float(cntValidLnR)/cntValidTrack<<std::endl;
         
-      }
+    //   }
 
     transform_map_2.clear();
     transform_map_2.insert(result.begin(), result.end());

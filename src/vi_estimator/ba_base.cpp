@@ -536,16 +536,16 @@ void BundleAdjustmentBase::filterOutliers(double outlier_threshold,
     // in all case, remove observation, if the leftover observation is too small, or the landmark themselves are off, then remove the landmark for all
     if (remove) {
       lmdb.removeLandmark(kv.first);
-      std::cout << "landmark removed:" << kv.first << std::endl;  
+      // std::cout << "landmark removed:" << kv.first << std::endl;  
     } else {
       std::set<TimeCamId> outliers;
       for (const auto& kv2 : kv.second) outliers.emplace(kv2.first);
       lmdb.removeObservations(kv.first, outliers);
-      std::cout << "num of obs removed:" << outliers.size() << std::endl; 
+      // std::cout << "num of obs removed:" << outliers.size() << std::endl; 
     }
   }
-  if (outliers.size())
-    std::cout << "============================================" << std::endl;
+  // if (outliers.size())
+  //   std::cout << "============================================" << std::endl;
   
 }
 
