@@ -9,10 +9,9 @@
     <remap from="/zed/left/camera_info_raw" to ="/tiscamera_ros/fisheye_left/camera_info"/>  
     <remap from="/zed/right/camera_info_raw" to ="/tiscamera_ros/fisheye_right/camera_info"/>  
 
-
     <param name="calib_file" type = "string" value="$(find basalt)/data/tis_23/tis_23.json"/> 
     <param name="config_path" type = "string" value="$(find basalt)/data/tis_config.json"/> 
-    <param name= "show_gui" value="false"/>
+    <param name= "show_gui" value="true"/>
     <param name= "print_queue" value="false"/>
     <param name= "terminate" value="false"/>
     <param name= "use_imu" value="true"/>

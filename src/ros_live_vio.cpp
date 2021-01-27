@@ -40,7 +40,7 @@
 
 // GUI functions
 void draw_image_overlay(pangolin::View& v, size_t cam_id);
-void draw_scene();
+void draw_scene(basalt::VioVisualizationData::Ptr);
 void load_data(const std::string& calib_path);
 void draw_plots();
 
@@ -114,14 +114,28 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& imu_msg){
     std::cout << "pre_ts = " << double(pre_ts) / 1e9 << ", now_ts = " << double(data->t_ns) / 1e9  << std::endl;
     abort();
   }
-  pre_ts = data->t_ns;
 
-  data->accel = Eigen::Vector3d(
-          imu_msg->linear_acceleration.x, imu_msg->linear_acceleration.y,
-          imu_msg->linear_acceleration.z);
-  data->gyro = Eigen::Vector3d(
-          imu_msg->angular_velocity.x, imu_msg->angular_velocity.y,
-          imu_msg->angular_velocity.z);
+  
+  
+
+  data->accel[0] = imu_msg->linear_acceleration.x;
+  data->accel[1] = imu_msg->linear_acceleration.y;
+  data->accel[2] = imu_msg->linear_acceleration.z;
+
+  data->gyro[0] = imu_msg->angular_velocity.x;
+  data->gyro[1] = imu_msg->angular_velocity.y;
+  data->gyro[2] = imu_msg->angular_velocity.z;
+
+
+  if (data->accel.norm() > 50){
+    std::cout << imu_msg->linear_acceleration.x << " " << imu_msg->linear_acceleration.y << " " << imu_msg->linear_acceleration.z << std::endl;
+    std::cout << "Detect greater than 5G acceleration in raw data, corrupted?" << std::endl;
+    // throw std::runtime_error("Detect greater than 5G acceleration in raw data, corrupted?");
+    return; // hm: ignore this data point
+  }
+
+  pre_ts = data->t_ns;
+  
   if (imu_data_queue) {
     if(imu_data_queue->try_push(data)){
       // if(vio_config.vio_debug)
@@ -167,8 +181,6 @@ int main(int argc, char** argv) {
   StereoProcessor stereo_sub(vio_config, stereoParam);
   last_img_data = stereo_sub.last_img_data;
   ros::Subscriber Imusub = nh.subscribe("/mavros/imu/data/sys_id_9", 200, imuCallback); // 2 seconds of buffering
-  ros::AsyncSpinner spinner(4);
-  spinner.start();
 
   if (num_threads > 0) {
     tbb::task_scheduler_init init(num_threads);
@@ -201,27 +213,28 @@ int main(int argc, char** argv) {
 
   vio_data_log.Clear();
 
-  std::shared_ptr<std::thread> t3;
+  // std::shared_ptr<std::thread> t3;
 
-  if (show_gui)
-    t3.reset(new std::thread([&]() {
-      while (true) {
-        out_vis_queue.pop(curr_vis_data);
+  // if (show_gui)
+  //   t3.reset(new std::thread([&]() {
+  //     while (true) {
+  //       out_vis_queue.pop(curr_vis_data);
 
-        if (!curr_vis_data.get()) break;
-      }
+  //       if (!curr_vis_data.get()) break;
+  //     }
 
-      std::cout << "Finished t3" << std::endl;
-    }));
+  //     std::cout << "Finished t3" << std::endl;
+  //   }));
+
+  ros::Publisher pose_cov_pub = nh.advertise<geometry_msgs::PoseWithCovarianceStamped>("/basalt/pose_nwu", 10);
+  ros::Publisher pose_pub = nh.advertise<geometry_msgs::PoseStamped>("/basalt/pose_cov_nwu", 10);
+  ros::Publisher pose_map_pub = nh.advertise<geometry_msgs::PoseStamped>("/basalt/pose_enu", 10);
+  ros::Publisher pose_cov_map_pub = nh.advertise<geometry_msgs::PoseWithCovarianceStamped>("/basalt/pose_cov_enu", 10);
+  ros::Publisher odom_pub = nh.advertise<nav_msgs::Odometry>("/basalt/odom_nwu", 10);
+  ros::Publisher odom_ned_pub = nh.advertise<nav_msgs::Odometry>("/basalt/odom_ned", 10);
 
   std::thread t4([&]() {
     basalt::PoseVelBiasState::Ptr data;
-    ros::Publisher pose_cov_pub = nh.advertise<geometry_msgs::PoseWithCovarianceStamped>("/basalt/pose_nwu", 10);
-    ros::Publisher pose_pub = nh.advertise<geometry_msgs::PoseStamped>("/basalt/pose_cov_nwu", 10);
-    ros::Publisher pose_map_pub = nh.advertise<geometry_msgs::PoseStamped>("/basalt/pose_enu", 10);
-    ros::Publisher pose_cov_map_pub = nh.advertise<geometry_msgs::PoseWithCovarianceStamped>("/basalt/pose_cov_enu", 10);
-    ros::Publisher odom_pub = nh.advertise<nav_msgs::Odometry>("/basalt/odom_nwu", 10);
-    ros::Publisher odom_ned_pub = nh.advertise<nav_msgs::Odometry>("/basalt/odom_ned", 10);
 
     try{
 
@@ -251,7 +264,7 @@ int main(int argc, char** argv) {
           // hm: detect big change in estimated position accross frames, > 4m accross frame
           if ( (vio_t_w_i.back() - T_w_i.translation()).norm() > 3){
             std::cout << "detect translation change > than 3:  " << (vio_t_w_i.back() - T_w_i.translation()).norm() << std::endl;
-            abort();
+            // abort(); 
           }
         }else{
           first_t_ns = t_ns;
@@ -431,6 +444,9 @@ int main(int argc, char** argv) {
     }));
   }
 
+  ros::AsyncSpinner spinner(2);
+  spinner.start();
+
   if (show_gui) {
     pangolin::CreateWindowAndBind("ROS Live Vio", 1800, 1000);
 
@@ -479,6 +495,10 @@ int main(int argc, char** argv) {
             .SetHandler(new pangolin::Handler3D(camera));
 
     while (ros::ok()) {
+
+        if(out_vis_queue.try_pop(curr_vis_data))
+          if (!curr_vis_data.get()) break;
+
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
       if (follow) {
@@ -493,7 +513,7 @@ int main(int argc, char** argv) {
       display3D.Activate(camera);
       glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 
-      draw_scene();
+      draw_scene(curr_vis_data);
 
       img_view_display.Activate();
 
@@ -535,7 +555,7 @@ int main(int argc, char** argv) {
   if (stereo_sub.image_data_queue) stereo_sub.image_data_queue->push(nullptr);
   if (imu_data_queue) imu_data_queue->push(nullptr);
 
-  if (t3.get()) t3->join();
+  // if (t3.get()) t3->join();
   t4.join();
   if (t5.get()) t5->join();
 
@@ -628,7 +648,7 @@ void draw_image_overlay(pangolin::View& v, size_t cam_id) {
   }
 }
 
-void draw_scene() {
+void draw_scene(basalt::VioVisualizationData::Ptr curr_vis_data) {
   glPointSize(3);
   glColor3f(1.0, 0.0, 0.0);
   glEnable(GL_BLEND);
